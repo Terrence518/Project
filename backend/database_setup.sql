@@ -1,0 +1,2 @@
+CREATE DATABASE IF NOT EXISTS ass1db;
+USE ass1db;
