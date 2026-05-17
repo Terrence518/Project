@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import AdminDashboard from './components/AdminDashboard.jsx'
+import AuthPanel from './components/AuthPanel.jsx'
 import CartPanel from './components/CartPanel.jsx'
 import InventoryPanel from './components/InventoryPanel.jsx'
 import ProductCatalog from './components/ProductCatalog.jsx'
@@ -11,12 +13,27 @@ const emptyProductForm = {
   description: '',
   price: '',
   stock: '',
+  image_url: '',
+}
+
+const emptyAuthForm = {
+  username: '',
+  email: '',
+  password: '',
 }
 
 function App() {
+  // Main data from the backend.
   const [products, setProducts] = useState([])
   const [cartItems, setCartItems] = useState([])
   const [productForm, setProductForm] = useState(emptyProductForm)
+  const [authForm, setAuthForm] = useState(emptyAuthForm)
+  const [authMode, setAuthMode] = useState('login')
+  // Save token so refresh keeps login.
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('authToken') ?? '')
+  const [currentUser, setCurrentUser] = useState(null)
+  const [adminCarts, setAdminCarts] = useState([])
+  const [adminLoading, setAdminLoading] = useState(false)
   const [editingProductId, setEditingProductId] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -26,6 +43,7 @@ function App() {
   const searchInputRef = useRef(null)
 
   useEffect(() => {
+    // Wait a bit before searching.
     const timeoutId = setTimeout(() => {
       loadStore()
     }, 250)
@@ -34,18 +52,36 @@ function App() {
   }, [searchTerm])
 
   useEffect(() => {
+    // Check saved login token.
+    if (!authToken) {
+      setCurrentUser(null)
+      localStorage.removeItem('authToken')
+      return
+    }
+
+    localStorage.setItem('authToken', authToken)
+    loadCurrentUser(authToken)
+  }, [authToken])
+
+  useEffect(() => {
     if (isSearchOpen) {
       searchInputRef.current?.focus()
     }
   }, [isSearchOpen])
 
   async function request(path, options = {}) {
+    // Helper for calling the backend.
+    const token = options.authToken ?? authToken
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    }
+    const { authToken: _authToken, ...fetchOptions } = options
+
     const response = await fetch(`${API_BASE_URL}${path}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers ?? {}),
-      },
-      ...options,
+      headers,
+      ...fetchOptions,
     })
 
     if (!response.ok) {
@@ -68,22 +104,66 @@ function App() {
     return response.json()
   }
 
-  async function loadStore() {
+  async function loadCurrentUser(token) {
+    try {
+      // Load user again after refresh.
+      const user = await request('/auth/me', { authToken: token })
+      setCurrentUser(user)
+      await loadStore(token, user)
+      if (user.role === 'admin') {
+        await loadAdminDashboard(token)
+      }
+    } catch {
+      setAuthToken('')
+      setCurrentUser(null)
+      setCartItems([])
+      setAdminCarts([])
+    }
+  }
+
+  async function loadStore(tokenOverride = authToken, userOverride = currentUser) {
     try {
       setLoading(true)
       setError('')
+      const cartToken = typeof tokenOverride === 'string' ? tokenOverride : ''
+      const cartUser = userOverride ?? currentUser
 
       const productPath = searchTerm.trim()
         ? `/products?search=${encodeURIComponent(searchTerm.trim())}`
         : '/products'
 
-      const [productData, cartData] = await Promise.all([
-        request(productPath),
-        request('/cart'),
-      ])
-
+      const productData = await request(productPath)
       setProducts(productData)
-      setCartItems(cartData)
+
+      // Anyone can see products, but only customers have carts.
+      if (!cartToken) {
+        setCartItems([])
+        return
+      }
+
+      if (!cartUser) {
+        return
+      }
+
+      if (cartUser.role !== 'customer') {
+        setCartItems([])
+        return
+      }
+
+      try {
+        const cartData = await request('/cart', { authToken: cartToken })
+        setCartItems(cartData)
+      } catch (cartErr) {
+        if (cartErr.message.toLowerCase().includes('authentication token')) {
+          setAuthToken('')
+          setCurrentUser(null)
+          setCartItems([])
+          setNotice('Session expired. Please log in again.')
+          return
+        }
+
+        throw cartErr
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -94,6 +174,37 @@ function App() {
   function updateProductForm(event) {
     const { name, value } = event.target
     setProductForm((current) => ({ ...current, [name]: value }))
+  }
+
+  async function loadAdminDashboard(tokenOverride = authToken) {
+    // Load data for admin dashboard.
+    const adminToken = typeof tokenOverride === 'string' ? tokenOverride : authToken
+    if (!adminToken) {
+      setAdminCarts([])
+      return
+    }
+
+    try {
+      setAdminLoading(true)
+      const carts = await request('/admin/carts', { authToken: adminToken })
+      setAdminCarts(carts)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setAdminLoading(false)
+    }
+  }
+
+  function updateAuthForm(event) {
+    const { name, value } = event.target
+    setAuthForm((current) => ({ ...current, [name]: value }))
+  }
+
+  function switchAuthMode(mode) {
+    setAuthMode(mode)
+    setAuthForm(emptyAuthForm)
+    setError('')
+    setNotice('')
   }
 
   function updateSearchTerm(event) {
@@ -120,6 +231,92 @@ function App() {
     setEditingProductId(null)
   }
 
+  async function saveAuthSession(data) {
+    // Save login and load user data.
+    setAuthToken(data.access_token)
+    setCurrentUser(data.user)
+    setAuthForm(emptyAuthForm)
+    await loadStore(data.access_token, data.user)
+    if (data.user.role === 'admin') {
+      await loadAdminDashboard(data.access_token)
+    }
+  }
+
+  async function registerUser(event) {
+    event.preventDefault()
+
+    const payload = {
+      username: authForm.username.trim(),
+      email: authForm.email.trim(),
+      password: authForm.password,
+    }
+
+    if (!payload.username || !payload.email || payload.password.length < 6) {
+      setError('Enter a username, email, and password with at least 6 characters.')
+      return
+    }
+
+    if (payload.password.length > 72) {
+      setError('Password must be 72 characters or fewer.')
+      return
+    }
+
+    try {
+      setError('')
+      // Register, then login.
+      await request('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      const loginData = await request('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: payload.username,
+          password: payload.password,
+        }),
+      })
+      await saveAuthSession(loginData)
+      setNotice('Account created and logged in.')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function loginUser(event) {
+    event.preventDefault()
+
+    const payload = {
+      username: authForm.username.trim(),
+      password: authForm.password,
+    }
+
+    if (!payload.username || !payload.password) {
+      setError('Enter your username and password.')
+      return
+    }
+
+    try {
+      setError('')
+      const data = await request('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      await saveAuthSession(data)
+      setNotice('Logged in.')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  function logoutUser() {
+    setAuthToken('')
+    setCurrentUser(null)
+    setCartItems([])
+    setAdminCarts([])
+    setNotice('Logged out.')
+    setError('')
+  }
+
   function getCartQuantityForProduct(productId) {
     const cartItem = cartItems.find((item) => item.product_id === productId)
     return cartItem ? cartItem.quantity : 0
@@ -132,6 +329,7 @@ function App() {
       description: product.description,
       price: String(product.price),
       stock: String(product.stock),
+      image_url: product.image_url ?? '',
     })
     setNotice(`Editing "${product.name}"`)
     setError('')
@@ -145,6 +343,7 @@ function App() {
       description: productForm.description.trim(),
       price: Number(productForm.price),
       stock: Number(productForm.stock),
+      image_url: productForm.image_url.trim(),
     }
 
     if (!payload.name || Number.isNaN(payload.price) || Number.isNaN(payload.stock)) {
@@ -171,6 +370,9 @@ function App() {
 
       resetProductForm()
       await loadStore()
+      if (isAdmin) {
+        await loadAdminDashboard()
+      }
     } catch (err) {
       setError(err.message)
     }
@@ -187,12 +389,21 @@ function App() {
       }
 
       await loadStore()
+      if (isAdmin) {
+        await loadAdminDashboard()
+      }
     } catch (err) {
       setError(err.message)
     }
   }
 
   async function addProductToCart(productId) {
+    // Need login before adding to cart.
+    if (!currentUser) {
+      setError('Login before adding products to your cart.')
+      return
+    }
+
     try {
       setError('')
       await request('/cart/items', {
@@ -207,6 +418,11 @@ function App() {
   }
 
   async function changeCartQuantity(cartItemId, quantity) {
+    if (!currentUser) {
+      setError('Login before changing cart items.')
+      return
+    }
+
     try {
       setError('')
       await request(`/cart/items/${cartItemId}`, {
@@ -221,6 +437,11 @@ function App() {
   }
 
   async function removeCartItem(cartItemId) {
+    if (!currentUser) {
+      setError('Login before removing cart items.')
+      return
+    }
+
     try {
       setError('')
       await request(`/cart/items/${cartItemId}`, { method: 'DELETE' })
@@ -233,6 +454,9 @@ function App() {
 
   const cartTotal = cartItems.reduce((total, item) => total + item.subtotal, 0)
   const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0)
+  const isAdmin = currentUser?.role === 'admin'
+  const canUseCart = currentUser?.role === 'customer'
+  const adminCartValue = adminCarts.reduce((total, cart) => total + cart.total_price, 0)
 
   return (
     <main className="app-shell">
@@ -250,14 +474,40 @@ function App() {
             <span className="stat-label">Products</span>
             <strong>{products.length}</strong>
           </div>
-          <div className="stat-card">
-            <span className="stat-label">Cart items</span>
-            <strong>{totalItems}</strong>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Cart total</span>
-            <strong>${cartTotal.toFixed(2)}</strong>
-          </div>
+          {isAdmin ? (
+            <>
+              <div className="stat-card">
+                <span className="stat-label">Customers</span>
+                <strong>{adminCarts.length}</strong>
+              </div>
+              <div className="stat-card">
+                <span className="stat-label">Cart value</span>
+                <strong>${adminCartValue.toFixed(2)}</strong>
+              </div>
+            </>
+          ) : canUseCart ? (
+            <>
+              <div className="stat-card">
+                <span className="stat-label">Cart items</span>
+                <strong>{totalItems}</strong>
+              </div>
+              <div className="stat-card">
+                <span className="stat-label">Cart total</span>
+                <strong>${cartTotal.toFixed(2)}</strong>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="stat-card">
+                <span className="stat-label">Account</span>
+                <strong>Login</strong>
+              </div>
+              <div className="stat-card">
+                <span className="stat-label">Access</span>
+                <strong>Shop</strong>
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -271,11 +521,14 @@ function App() {
       <section className="content-grid">
         <ProductCatalog
           getCartQuantityForProduct={getCartQuantityForProduct}
+          canUseCart={canUseCart}
+          isAdmin={isAdmin}
+          isLoggedIn={Boolean(currentUser)}
           isSearchOpen={isSearchOpen}
           loading={loading}
           onAddToCart={addProductToCart}
           onEditProduct={startEditProduct}
-          onRefresh={loadStore}
+          onRefresh={() => loadStore()}
           onRemoveProduct={removeProduct}
           onSearchBlur={handleSearchBlur}
           onSearchChange={updateSearchTerm}
@@ -286,21 +539,44 @@ function App() {
         />
 
         <aside className="side-column">
-          <CartPanel
-            cartItems={cartItems}
-            cartTotal={cartTotal}
-            onChangeCartQuantity={changeCartQuantity}
-            onRemoveCartItem={removeCartItem}
-            totalItems={totalItems}
+          <AuthPanel
+            authForm={authForm}
+            authMode={authMode}
+            currentUser={currentUser}
+            onAuthFormChange={updateAuthForm}
+            onAuthModeChange={switchAuthMode}
+            onLogin={loginUser}
+            onLogout={logoutUser}
+            onRegister={registerUser}
           />
 
-          <InventoryPanel
-            editingProductId={editingProductId}
-            onCancelEdit={resetProductForm}
-            onProductFormChange={updateProductForm}
-            onSubmit={submitProduct}
-            productForm={productForm}
-          />
+          {canUseCart && (
+            <CartPanel
+              cartItems={cartItems}
+              cartTotal={cartTotal}
+              onChangeCartQuantity={changeCartQuantity}
+              onRemoveCartItem={removeCartItem}
+              totalItems={totalItems}
+            />
+          )}
+
+          {isAdmin && (
+            <>
+              <AdminDashboard
+                carts={adminCarts}
+                loading={adminLoading}
+                onRefresh={() => loadAdminDashboard()}
+              />
+
+              <InventoryPanel
+                editingProductId={editingProductId}
+                onCancelEdit={resetProductForm}
+                onProductFormChange={updateProductForm}
+                onSubmit={submitProduct}
+                productForm={productForm}
+              />
+            </>
+          )}
         </aside>
       </section>
     </main>

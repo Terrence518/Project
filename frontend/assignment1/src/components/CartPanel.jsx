@@ -21,6 +21,7 @@ function CartPanel({
       ) : (
         <>
           <div className="cart-list">
+            {/* Update quantity in the database. */}
             {cartItems.map((item) => (
               <article className="cart-item" key={item.id}>
                 <div>

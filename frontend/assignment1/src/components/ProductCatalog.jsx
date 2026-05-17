@@ -12,6 +12,9 @@ function ProductCatalog({
   onEditProduct,
   onRemoveProduct,
   getCartQuantityForProduct,
+  canUseCart,
+  isAdmin,
+  isLoggedIn,
 }) {
   return (
     <div className="catalog-panel">
@@ -20,6 +23,7 @@ function ProductCatalog({
           <h2>Products</h2>
         </div>
         <div className="toolbar">
+          {/* Show search box when user opens it. */}
           {(isSearchOpen || searchTerm.trim()) && (
             <input
               className="search-input"
@@ -59,6 +63,7 @@ function ProductCatalog({
       ) : (
         <div className="product-grid">
           {products.map((product) => {
+            // Check stock before allowing add to cart.
             const cartQuantity = getCartQuantityForProduct(product.id)
             const isOutOfStock = product.stock === 0
             const isAtStockLimit = cartQuantity >= product.stock && product.stock > 0
@@ -66,7 +71,11 @@ function ProductCatalog({
             return (
               <article className="product-card" key={product.id}>
                 <div className="product-visual" aria-hidden="true">
-                  <span>{product.name.slice(0, 1)}</span>
+                  {product.image_url ? (
+                    <img alt="" src={product.image_url} />
+                  ) : (
+                    <span>{product.name.slice(0, 1)}</span>
+                  )}
                 </div>
 
                 <div className="product-body">
@@ -83,32 +92,41 @@ function ProductCatalog({
                   </div>
 
                   <div className="card-actions">
-                    <button
-                      className="primary-button"
-                      disabled={isOutOfStock || isAtStockLimit}
-                      onClick={() => onAddToCart(product.id)}
-                      type="button"
-                    >
-                      {isOutOfStock
-                        ? 'Out of stock'
-                        : isAtStockLimit
-                          ? 'Max in cart'
-                          : 'Add to cart'}
-                    </button>
-                    <button
-                      className="ghost-button"
-                      onClick={() => onEditProduct(product)}
-                      type="button"
-                    >
-                      Edit stock
-                    </button>
-                    <button
-                      className="danger-button"
-                      onClick={() => onRemoveProduct(product.id)}
-                      type="button"
-                    >
-                      Delete product
-                    </button>
+                    {/* Customers buy, admins edit. */}
+                    {!isAdmin && (
+                      <button
+                        className="primary-button"
+                        disabled={!canUseCart || isOutOfStock || isAtStockLimit}
+                        onClick={() => onAddToCart(product.id)}
+                        type="button"
+                      >
+                        {!isLoggedIn
+                          ? 'Login to add'
+                          : isOutOfStock
+                            ? 'Out of stock'
+                            : isAtStockLimit
+                              ? 'Max in cart'
+                              : 'Add to cart'}
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <>
+                        <button
+                          className="ghost-button"
+                          onClick={() => onEditProduct(product)}
+                          type="button"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="danger-button"
+                          onClick={() => onRemoveProduct(product.id)}
+                          type="button"
+                        >
+                          Delete product
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </article>

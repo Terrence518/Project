@@ -1,10 +1,12 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Generator, Optional
 
 from dotenv import load_dotenv
-from sqlalchemy import or_
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from sqlalchemy import Column, String, inspect, or_, text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -15,11 +17,58 @@ DB_PORT = int(os.getenv("DB_PORT", "3306"))
 DB_NAME = os.getenv("DB_NAME", "ass1db")
 DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+SECRET_KEY = os.getenv("SECRET_KEY", "change-this-secret-key-for-assignment-2")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 engine = create_engine(DATABASE_URL, echo=False)
+password_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+# User tables and login data.
+class UserBase(SQLModel):
+    username: str = Field(min_length=3, max_length=80)
+    email: str = Field(max_length=120)
+
+
+class User(UserBase, table=True):
+    __tablename__ = "users"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(
+        sa_column=Column(String(80), unique=True, index=True, nullable=False)
+    )
+    email: str = Field(
+        sa_column=Column(String(120), unique=True, index=True, nullable=False)
+    )
+    hashed_password: str = Field(max_length=255)
+    role: str = Field(default="customer", max_length=20)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class UserCreate(UserBase):
+    password: str = Field(min_length=6, max_length=72)
+
+
+class UserLogin(SQLModel):
+    username: str
+    password: str
+
+
+class UserRead(UserBase):
+    id: int
+    role: str
+    created_at: datetime
+
+
+class Token(SQLModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserRead
+
+
+# Product data for the store.
 class ProductBase(SQLModel):
     name: str = Field(max_length=120)
     description: str = Field(default="", max_length=500)
@@ -50,6 +99,7 @@ class ProductRead(ProductBase):
     created_at: datetime
 
 
+# Cart item links user and product.
 class CartItemBase(SQLModel):
     product_id: int = Field(foreign_key="product.id")
     quantity: int = Field(default=1, ge=1)
@@ -57,6 +107,7 @@ class CartItemBase(SQLModel):
 
 class CartItem(CartItemBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
@@ -78,6 +129,14 @@ class CartItemRead(SQLModel):
     subtotal: float
 
 
+class AdminUserCartRead(SQLModel):
+    user: UserRead
+    items: list[CartItemRead]
+    total_items: int
+    total_price: float
+
+
+# Sample products for first run.
 SAMPLE_PRODUCTS = [
     ProductCreate(
         name="Wireless Mouse",
@@ -111,8 +170,110 @@ def get_session() -> Generator[Session, None, None]:
 
 def initialize_database() -> None:
     create_db_and_tables()
+    migrate_cart_items_user_id()
     with Session(engine) as session:
         seed_products(session)
+
+
+def migrate_cart_items_user_id() -> None:
+    # Add user_id if old cart table does not have it.
+    inspector = inspect(engine)
+    if not inspector.has_table("cartitem"):
+        return
+
+    column_names = {column["name"] for column in inspector.get_columns("cartitem")}
+    if "user_id" in column_names:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE cartitem ADD COLUMN user_id INT NULL"))
+
+
+def get_password_hash(password: str) -> str:
+    # Hash password before saving.
+    return password_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return password_context.verify(plain_password, hashed_password)
+
+
+def create_access_token(
+    data: dict, expires_delta: Optional[timedelta] = None
+) -> str:
+    # Put user id inside the token.
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (
+        expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def get_user_by_id(session: Session, user_id: int) -> Optional[User]:
+    return session.get(User, user_id)
+
+
+def get_user_by_username(session: Session, username: str) -> Optional[User]:
+    statement = select(User).where(User.username == username.strip().lower())
+    return session.exec(statement).first()
+
+
+def get_user_by_email(session: Session, email: str) -> Optional[User]:
+    statement = select(User).where(User.email == email.strip().lower())
+    return session.exec(statement).first()
+
+
+def create_user(session: Session, user_create: UserCreate) -> User:
+    # Clean username and email before saving.
+    username = user_create.username.strip().lower()
+    email = user_create.email.strip().lower()
+
+    if get_user_by_username(session, username):
+        raise ValueError("Username is already registered.")
+
+    if get_user_by_email(session, email):
+        raise ValueError("Email is already registered.")
+
+    user = User(
+        username=username,
+        email=email,
+        hashed_password=get_password_hash(user_create.password),
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+def authenticate_user(
+    session: Session, username: str, password: str
+) -> Optional[User]:
+    user = get_user_by_username(session, username)
+    if not user or not verify_password(password, user.hashed_password):
+        return None
+    return user
+
+
+def create_login_token(user: User) -> Token:
+    access_token = create_access_token({"sub": str(user.id)})
+    return Token(access_token=access_token, user=UserRead.model_validate(user))
+
+
+def get_user_from_token(session: Session, token: str) -> Optional[User]:
+    # Read token and find the user.
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if user_id is None:
+            return None
+        return get_user_by_id(session, int(user_id))
+    except (JWTError, ValueError):
+        return None
+
+
+def get_users(session: Session) -> list[User]:
+    return list(session.exec(select(User).order_by(User.created_at.desc())).all())
 
 
 def seed_products(session: Session) -> None:
@@ -138,6 +299,7 @@ def get_products(
     statement = select(Product)
 
     if search:
+        # Search name and description.
         statement = statement.where(
             or_(
                 Product.name.contains(search),
@@ -166,6 +328,7 @@ def update_product(
 
     update_data = product_update.model_dump(exclude_unset=True)
     if "stock" in update_data:
+        # Stock cannot be less than items already in carts.
         cart_quantity = get_cart_quantity_for_product(session, product_id)
         if update_data["stock"] < cart_quantity:
             raise ValueError(
@@ -209,6 +372,7 @@ def get_cart_quantity_for_product(session: Session, product_id: int) -> int:
 
 
 def _build_cart_item_read(session: Session, cart_item: CartItem) -> CartItemRead:
+    # Add product info for cart display.
     product = get_product_by_id(session, cart_item.product_id)
     if not product:
         raise ValueError("Product not found for cart item")
@@ -224,13 +388,36 @@ def _build_cart_item_read(session: Session, cart_item: CartItem) -> CartItemRead
     )
 
 
-def get_cart_items(session: Session) -> list[CartItemRead]:
-    cart_items = session.exec(select(CartItem)).all()
+def get_cart_items(session: Session, user_id: int) -> list[CartItemRead]:
+    cart_items = session.exec(
+        select(CartItem).where(CartItem.user_id == user_id)
+    ).all()
     return [_build_cart_item_read(session, item) for item in cart_items]
 
 
+def get_all_user_carts(session: Session) -> list[AdminUserCartRead]:
+    # Admin dashboard only shows customers.
+    users = session.exec(
+        select(User).where(User.role == "customer").order_by(User.username)
+    ).all()
+    user_carts: list[AdminUserCartRead] = []
+
+    for user in users:
+        items = get_cart_items(session, user.id)
+        user_carts.append(
+            AdminUserCartRead(
+                user=UserRead.model_validate(user),
+                items=items,
+                total_items=sum(item.quantity for item in items),
+                total_price=round(sum(item.subtotal for item in items), 2),
+            )
+        )
+
+    return user_carts
+
+
 def add_to_cart(
-    session: Session, cart_item_create: CartItemCreate
+    session: Session, user_id: int, cart_item_create: CartItemCreate
 ) -> Optional[CartItemRead]:
     product = get_product_by_id(session, cart_item_create.product_id)
     if not product:
@@ -240,10 +427,14 @@ def add_to_cart(
         raise ValueError("This product is out of stock.")
 
     existing_item = session.exec(
-        select(CartItem).where(CartItem.product_id == cart_item_create.product_id)
+        select(CartItem).where(
+            CartItem.user_id == user_id,
+            CartItem.product_id == cart_item_create.product_id,
+        )
     ).first()
 
     if existing_item:
+        # Same product increases quantity.
         requested_quantity = existing_item.quantity + cart_item_create.quantity
         if requested_quantity > product.stock:
             raise ValueError(
@@ -262,6 +453,7 @@ def add_to_cart(
         )
 
     cart_item = CartItem.model_validate(cart_item_create)
+    cart_item.user_id = user_id
     session.add(cart_item)
     session.commit()
     session.refresh(cart_item)
@@ -269,10 +461,13 @@ def add_to_cart(
 
 
 def update_cart_item(
-    session: Session, cart_item_id: int, cart_item_update: CartItemUpdate
+    session: Session,
+    user_id: int,
+    cart_item_id: int,
+    cart_item_update: CartItemUpdate,
 ) -> Optional[CartItemRead]:
     cart_item = get_cart_item_by_id(session, cart_item_id)
-    if not cart_item:
+    if not cart_item or cart_item.user_id != user_id:
         return None
 
     product = get_product_by_id(session, cart_item.product_id)
@@ -291,9 +486,9 @@ def update_cart_item(
     return _build_cart_item_read(session, cart_item)
 
 
-def delete_cart_item(session: Session, cart_item_id: int) -> bool:
+def delete_cart_item(session: Session, user_id: int, cart_item_id: int) -> bool:
     cart_item = get_cart_item_by_id(session, cart_item_id)
-    if not cart_item:
+    if not cart_item or cart_item.user_id != user_id:
         return False
 
     session.delete(cart_item)
