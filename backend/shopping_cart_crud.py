@@ -6,7 +6,7 @@ from typing import Generator, Optional
 from dotenv import load_dotenv
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from sqlalchemy import Column, String, inspect, or_, text
+from sqlalchemy import Column, String, inspect, text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -299,13 +299,8 @@ def get_products(
     statement = select(Product)
 
     if search:
-        # Search name and description.
-        statement = statement.where(
-            or_(
-                Product.name.contains(search),
-                Product.description.contains(search),
-            )
-        )
+        # Search product name.
+        statement = statement.where(Product.name.contains(search))
 
     statement = statement.offset(skip).limit(limit)
     return list(session.exec(statement).all())
