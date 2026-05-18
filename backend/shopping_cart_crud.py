@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Generator, Optional
 
 from dotenv import load_dotenv
-from sqlalchemy import or_
+from passlib.context import CryptContext
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -18,6 +18,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 engine = create_engine(DATABASE_URL, echo=False)
+password_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # User tables and login data.
@@ -156,6 +157,107 @@ def initialize_database() -> None:
     create_db_and_tables()
     with Session(engine) as session:
         seed_products(session)
+
+
+def migrate_cart_items_user_id() -> None:
+    # Add user_id if old cart table does not have it.
+    inspector = inspect(engine)
+    if not inspector.has_table("cartitem"):
+        return
+
+    column_names = {column["name"] for column in inspector.get_columns("cartitem")}
+    if "user_id" in column_names:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE cartitem ADD COLUMN user_id INT NULL"))
+
+
+def get_password_hash(password: str) -> str:
+    # Hash password before saving.
+    return password_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return password_context.verify(plain_password, hashed_password)
+
+
+def create_access_token(
+    data: dict, expires_delta: Optional[timedelta] = None
+) -> str:
+    # Put user id inside the token.
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (
+        expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def get_user_by_id(session: Session, user_id: int) -> Optional[User]:
+    return session.get(User, user_id)
+
+
+def get_user_by_username(session: Session, username: str) -> Optional[User]:
+    statement = select(User).where(User.username == username.strip().lower())
+    return session.exec(statement).first()
+
+
+def get_user_by_email(session: Session, email: str) -> Optional[User]:
+    statement = select(User).where(User.email == email.strip().lower())
+    return session.exec(statement).first()
+
+
+def create_user(session: Session, user_create: UserCreate) -> User:
+    # Clean username and email before saving.
+    username = user_create.username.strip().lower()
+    email = user_create.email.strip().lower()
+
+    if get_user_by_username(session, username):
+        raise ValueError("Username is already registered.")
+
+    if get_user_by_email(session, email):
+        raise ValueError("Email is already registered.")
+
+    user = User(
+        username=username,
+        email=email,
+        hashed_password=get_password_hash(user_create.password),
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+def authenticate_user(
+    session: Session, username: str, password: str
+) -> Optional[User]:
+    user = get_user_by_username(session, username)
+    if not user or not verify_password(password, user.hashed_password):
+        return None
+    return user
+
+
+def create_login_token(user: User) -> Token:
+    access_token = create_access_token({"sub": str(user.id)})
+    return Token(access_token=access_token, user=UserRead.model_validate(user))
+
+
+def get_user_from_token(session: Session, token: str) -> Optional[User]:
+    # Read token and find the user.
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if user_id is None:
+            return None
+        return get_user_by_id(session, int(user_id))
+    except (JWTError, ValueError):
+        return None
+
+
+def get_users(session: Session) -> list[User]:
+    return list(session.exec(select(User).order_by(User.created_at.desc())).all())
 
 
 def seed_products(session: Session) -> None:
