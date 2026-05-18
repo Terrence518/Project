@@ -20,6 +20,49 @@ DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB
 engine = create_engine(DATABASE_URL, echo=False)
 
 
+# User tables and login data.
+class UserBase(SQLModel):
+    username: str = Field(min_length=3, max_length=80)
+    email: str = Field(max_length=120)
+
+
+class User(UserBase, table=True):
+    __tablename__ = "users"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(
+        sa_column=Column(String(80), unique=True, index=True, nullable=False)
+    )
+    email: str = Field(
+        sa_column=Column(String(120), unique=True, index=True, nullable=False)
+    )
+    hashed_password: str = Field(max_length=255)
+    role: str = Field(default="customer", max_length=20)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class UserCreate(UserBase):
+    password: str = Field(min_length=6, max_length=72)
+
+
+class UserLogin(SQLModel):
+    username: str
+    password: str
+
+
+class UserRead(UserBase):
+    id: int
+    role: str
+    created_at: datetime
+
+
+class Token(SQLModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserRead
+
+
+# Product data for the store.
 class ProductBase(SQLModel):
     name: str = Field(max_length=120)
     description: str = Field(default="", max_length=500)
