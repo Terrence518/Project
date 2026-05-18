@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session
 
 from shopping_cart_crud import (
+    AdminUserCartRead,
     CartItemCreate,
     CartItemRead,
     CartItemUpdate,
@@ -25,10 +26,12 @@ from shopping_cart_crud import (
     create_user,
     delete_cart_item,
     delete_product,
+    get_all_user_carts,
     get_cart_items,
     get_product_by_id,
     get_products,
     get_session,
+    get_users,
     get_user_from_token,
     initialize_database,
     update_cart_item,
@@ -38,6 +41,7 @@ from shopping_cart_crud import (
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Setup database when API starts.
     initialize_database()
     yield
 

@@ -1,55 +1,213 @@
 # St Leonards' Tech Store
 
-St Leonards' Tech Store is a single-page e-commerce shopping cart website. The website solves the problem of browsing tech accessories and managing purchases in one place by letting users view products, search products, add items to a cart, update quantities, and remove items without leaving the page.
+St Leonards' Tech Store is a single-page e-commerce shopping cart web app. This project extends the Assignment 1 store into an Assignment 2 full-stack app with login, user roles, customer carts, and an admin dashboard.
 
 ## Technical Stack
 
 - Frontend: React with Vite
 - Styling: custom CSS in `frontend/assignment1/src/App.css` and `frontend/assignment1/src/index.css`
-- Routing: single-page interface with one React entry point; the page updates dynamically without full page reloads
-- Data/API: Fetch API calling a FastAPI backend
 - Backend: FastAPI with SQLModel
 - Database: MySQL
-- Deployment: local development setup for this assignment; no cloud deployment configured
+- Authentication: password hashing with bcrypt and JWT tokens
+- App type: single-page application with one React entry point
 
-## Features
+## Main Features
 
-- Single-page storefront and shopping cart experience
+- User registration and login
+- Password hashing for stored passwords
+- JWT-based authentication
+- Customer and admin roles
 - Product listing loaded from MySQL
-- Search bar for filtering products by name or description
-- Add to cart, update quantity, and remove from cart
-- Product CRUD form for creating, editing, and deleting products
-- Stock validation to stop cart quantities from exceeding available stock
-- Responsive layout for desktop and smaller screens
+- Live product search by name or description
+- Customer-only shopping cart
+- User-specific cart data
+- Add, update, and remove cart items
+- Stock validation so users cannot add more than the available stock
+- Admin-only product creation, editing, and deletion
+- Admin dashboard for viewing all customer carts
+- Responsive single-page layout
+
+## User Roles
+
+### Customer
+
+Customers can:
+
+- Register and log in
+- Browse and search products
+- Add products to their own cart
+- Update cart quantities
+- Remove cart items
+- Log out
+
+Customers cannot:
+
+- Create products
+- Edit product stock/details
+- Delete products
+- View other users' carts
+
+### Admin
+
+Admins can:
+
+- Log in
+- View all products
+- Create, edit, and delete products
+- View all customer carts in the admin dashboard
+
+Admins do not use the customer shopping cart interface.
 
 ## Folder Structure
 
-- `backend/`: FastAPI server, MySQL connection, models, and CRUD logic
+- `backend/`: FastAPI server, database models, login, and CRUD logic
 - `backend/main.py`: backend entry file used by Uvicorn
-- `backend/shopping_cart_app.py`: API routes and FastAPI setup
-- `backend/shopping_cart_crud.py`: database models, stock rules, seed data, and CRUD functions
+- `backend/shopping_cart_app.py`: API routes, CORS, login checks, and route protection
+- `backend/shopping_cart_crud.py`: SQLModel models, database setup, auth helpers, products, carts, and admin queries
+- `backend/database_setup.sql`: creates the MySQL database
+- `backend/requirements.txt`: Python backend dependencies
 - `frontend/assignment1/`: React frontend application
-- `frontend/assignment1/src/App.jsx`: main page coordinator and shared state
-- `frontend/assignment1/src/components/`: split UI components for product catalog, cart, and inventory management
+- `frontend/assignment1/src/App.jsx`: main page state, API calls, login flow, and role-based rendering
+- `frontend/assignment1/src/components/`: UI components for auth, products, cart, inventory, and admin dashboard
 - `frontend/assignment1/src/App.css`: page-specific styling
 - `frontend/assignment1/src/index.css`: global styling
 
-## Challenges Overcome
+## Backend API Summary
 
-One challenge was connecting the React frontend, FastAPI backend, and MySQL database so data could flow correctly between all parts of the project. Another challenge was turning the default Vite starter into a real storefront interface with product cards, cart controls, and product management features. Search was added through both the backend and frontend so the page feels more dynamic and useful. Stock control was also improved so users cannot add more items to the cart than are available in inventory. Finally, the interface was refined to feel cleaner and more streamlined by simplifying labels, improving button states, and keeping everything on a single page.
+Authentication:
+
+- `POST /auth/register`
+- `POST /auth/login`
+- `GET /auth/me`
+
+Products:
+
+- `GET /products`
+- `GET /products/{product_id}`
+- `POST /products` admin only
+- `PUT /products/{product_id}` admin only
+- `DELETE /products/{product_id}` admin only
+
+Customer cart:
+
+- `GET /cart`
+- `POST /cart/items`
+- `PUT /cart/items/{cart_item_id}`
+- `DELETE /cart/items/{cart_item_id}`
+
+Admin:
+
+- `GET /admin/users`
+- `GET /admin/carts`
 
 ## Running The Project
 
-1. Start MySQL and make sure the `ass1db` database exists.
-2. In `backend/.env`, set your MySQL username and password.
-3. Start the backend:
+1. Start MySQL.
 
+2. Create the database if it does not already exist:
+
+```sql
+CREATE DATABASE IF NOT EXISTS ass1db;
+```
+
+3. In `backend/.env`, set your MySQL connection details. Example:
+
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=ass1db
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+SECRET_KEY=change-this-secret-key
+```
+
+4. Create and prepare the backend Python virtual environment:
+
+```powershell
 cd backend
-.\.venv\Scripts\python.exe -m uvicorn main:app
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
 
-4. Start the frontend:
+5. Start the backend:
 
+```powershell
+python -m uvicorn main:app
+```
+
+The backend usually runs at:
+
+```text
+http://127.0.0.1:8000
+```
+
+FastAPI documentation is available at:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+6. Install frontend dependencies and start the frontend in a second terminal:
+
+```powershell
 cd frontend\assignment1
+npm install
 npm.cmd run dev
+```
 
-5. Open the frontend in the browser, usually at `http://127.0.0.1:5173`.
+7. Open the frontend in the browser:
+
+```text
+http://127.0.0.1:5173
+```
+
+## Testing Customer Login
+
+1. Open the website.
+2. Register a new account.
+3. Log in as that user.
+4. Add products to the cart.
+5. Log out and log back in.
+6. The cart should still belong to that user.
+
+## Making A User An Admin
+
+New registered users are customers by default. To test the admin dashboard, update one user in MySQL:
+
+```sql
+USE ass1db;
+
+UPDATE users
+SET role = 'admin'
+WHERE username = 'terry';
+
+SELECT id, username, email, role
+FROM users;
+```
+
+Replace `terry` with your registered username.
+
+After running the SQL:
+
+1. Log out from the website.
+2. Log in again.
+3. The admin dashboard and inventory manager should appear.
+
+To change the user back to customer:
+
+```sql
+USE ass1db;
+
+UPDATE users
+SET role = 'customer'
+WHERE username = 'terry';
+```
+
+## Notes
+
+- The frontend stores the JWT token in `localStorage` so the user stays logged in after refreshing.
+- Product create, update, and delete operations are protected on the backend, not only hidden in the frontend.
+- Customer cart records include `user_id`, so each customer has a separate cart.
+- The admin dashboard shows customer carts only, not admin accounts.
+- Product images use direct image URLs, for example links that end in `.jpg`, `.jpeg`, `.png`, or `.webp`.

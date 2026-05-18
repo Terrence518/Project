@@ -43,6 +43,7 @@ function App() {
   const searchInputRef = useRef(null)
 
   useEffect(() => {
+    // Wait a bit before searching.
     const timeoutId = setTimeout(() => {
       loadStore()
     }, 250)
@@ -328,6 +329,7 @@ function App() {
       description: product.description,
       price: String(product.price),
       stock: String(product.stock),
+      image_url: product.image_url ?? '',
     })
     setNotice(`Editing "${product.name}"`)
     setError('')
@@ -341,6 +343,7 @@ function App() {
       description: productForm.description.trim(),
       price: Number(productForm.price),
       stock: Number(productForm.stock),
+      image_url: productForm.image_url.trim(),
     }
 
     if (!payload.name || Number.isNaN(payload.price) || Number.isNaN(payload.stock)) {
@@ -367,6 +370,9 @@ function App() {
 
       resetProductForm()
       await loadStore()
+      if (isAdmin) {
+        await loadAdminDashboard()
+      }
     } catch (err) {
       setError(err.message)
     }
@@ -383,6 +389,9 @@ function App() {
       }
 
       await loadStore()
+      if (isAdmin) {
+        await loadAdminDashboard()
+      }
     } catch (err) {
       setError(err.message)
     }

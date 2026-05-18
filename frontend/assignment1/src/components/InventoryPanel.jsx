@@ -21,6 +21,7 @@ function InventoryPanel({
         )}
       </div>
 
+      {/* Admin uses this form to add or edit products. */}
       <form className="product-form" onSubmit={onSubmit}>
         <label>
           Product name
@@ -40,6 +41,16 @@ function InventoryPanel({
             placeholder="Describe the product"
             rows="4"
             value={productForm.description}
+          />
+        </label>
+
+        <label>
+          Image URL
+          <input
+            name="image_url"
+            onChange={onProductFormChange}
+            placeholder="https://example.com/product.jpg"
+            value={productForm.image_url}
           />
         </label>
 
