@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Generator, Literal, Optional
 
 from dotenv import load_dotenv
 from jose import JWTError, jwt
@@ -60,6 +60,17 @@ class UserRead(UserBase):
     id: int
     role: str
     created_at: datetime
+
+
+class UserRoleUpdate(SQLModel):
+    # Admin can change a user's role.
+    role: Literal["customer", "admin"]
+
+
+class AdminUserRead(UserRead):
+    # Extra user data for admin user management.
+    cart_items: int
+    cart_total: float
 
 
 class Token(SQLModel):
