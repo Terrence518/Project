@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Generator, Literal, Optional
 
 from dotenv import load_dotenv
 from jose import JWTError, jwt
@@ -60,6 +60,17 @@ class UserRead(UserBase):
     id: int
     role: str
     created_at: datetime
+
+
+class UserRoleUpdate(SQLModel):
+    # Super admin can change users between customer and admin.
+    role: Literal["customer", "admin"]
+
+
+class AdminUserRead(UserRead):
+    # Extra user data for admin user management.
+    cart_items: int
+    cart_total: float
 
 
 class Token(SQLModel):
@@ -274,6 +285,68 @@ def get_user_from_token(session: Session, token: str) -> Optional[User]:
 
 def get_users(session: Session) -> list[User]:
     return list(session.exec(select(User).order_by(User.created_at.desc())).all())
+
+
+def _get_user_cart_summary(session: Session, user_id: int) -> tuple[int, float]:
+    # Count this user's cart items for the admin table.
+    cart_items = get_cart_items(session, user_id)
+    total_items = sum(item.quantity for item in cart_items)
+    total_price = round(sum(item.subtotal for item in cart_items), 2)
+    return total_items, total_price
+
+
+def get_admin_users(session: Session) -> list[AdminUserRead]:
+    # Admin user list with cart summary.
+    users = session.exec(select(User).order_by(User.created_at.desc())).all()
+    admin_users: list[AdminUserRead] = []
+
+    for user in users:
+        total_items, total_price = _get_user_cart_summary(session, user.id)
+        admin_users.append(
+            AdminUserRead(
+                id=user.id,
+                username=user.username,
+                email=user.email,
+                role=user.role,
+                created_at=user.created_at,
+                cart_items=total_items,
+                cart_total=total_price,
+            )
+        )
+
+    return admin_users
+
+
+def update_user_role(
+    session: Session, user_id: int, role_update: UserRoleUpdate
+) -> Optional[User]:
+    # Admin can change customer/admin role.
+    user = get_user_by_id(session, user_id)
+    if not user:
+        return None
+
+    user.role = role_update.role
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+def delete_user(session: Session, user_id: int) -> bool:
+    # Delete user and their cart items.
+    user = get_user_by_id(session, user_id)
+    if not user:
+        return False
+
+    cart_items = session.exec(
+        select(CartItem).where(CartItem.user_id == user_id)
+    ).all()
+    for item in cart_items:
+        session.delete(item)
+
+    session.delete(user)
+    session.commit()
+    return True
 
 
 def seed_products(session: Session) -> None:

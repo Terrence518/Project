@@ -8,6 +8,7 @@ from sqlmodel import Session
 
 from shopping_cart_crud import (
     AdminUserCartRead,
+    AdminUserRead,
     CartItemCreate,
     CartItemRead,
     CartItemUpdate,
@@ -19,6 +20,7 @@ from shopping_cart_crud import (
     UserCreate,
     UserLogin,
     UserRead,
+    UserRoleUpdate,
     add_to_cart,
     authenticate_user,
     create_login_token,
@@ -26,16 +28,18 @@ from shopping_cart_crud import (
     create_user,
     delete_cart_item,
     delete_product,
+    delete_user,
     get_all_user_carts,
+    get_admin_users,
     get_cart_items,
     get_product_by_id,
     get_products,
     get_session,
-    get_users,
     get_user_from_token,
     initialize_database,
     update_cart_item,
     update_product,
+    update_user_role,
 )
 
 
@@ -86,11 +90,21 @@ def get_current_user(
 
 
 def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
-    # Check if user is admin.
-    if current_user.role != "admin":
+    # Check if user can use admin features.
+    if current_user.role not in {"admin", "super_admin"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access is required",
+        )
+    return current_user
+
+
+def get_current_super_admin(current_user: User = Depends(get_current_user)) -> User:
+    # Only super admin can manage other users.
+    if current_user.role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin access is required",
         )
     return current_user
 
@@ -137,12 +151,52 @@ def read_current_user(current_user: User = Depends(get_current_user)):
     return current_user
 
 
-@app.get("/admin/users", response_model=list[UserRead])
+@app.get("/admin/users", response_model=list[AdminUserRead])
 def read_admin_users(
     db: Session = Depends(get_session),
-    _: User = Depends(get_current_admin),
+    _: User = Depends(get_current_super_admin),
 ):
-    return get_users(db)
+    # Super admin can view all users with cart totals.
+    return get_admin_users(db)
+
+
+@app.put("/admin/users/{user_id}/role", response_model=UserRead)
+def edit_admin_user_role(
+    user_id: int,
+    role_update: UserRoleUpdate,
+    db: Session = Depends(get_session),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    # Do not let a super admin remove their own owner access.
+    if user_id == current_admin.id:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot change your own super admin role.",
+        )
+
+    updated_user = update_user_role(db, user_id, role_update)
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated_user
+
+
+@app.delete("/admin/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_admin_user(
+    user_id: int,
+    db: Session = Depends(get_session),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    # Do not let a super admin delete their own account.
+    if user_id == current_admin.id:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot delete your own super admin account.",
+        )
+
+    deleted = delete_user(db, user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/admin/carts", response_model=list[AdminUserCartRead])

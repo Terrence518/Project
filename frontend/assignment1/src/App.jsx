@@ -4,6 +4,7 @@ import AuthPanel from './components/AuthPanel.jsx'
 import CartPanel from './components/CartPanel.jsx'
 import InventoryPanel from './components/InventoryPanel.jsx'
 import ProductCatalog from './components/ProductCatalog.jsx'
+import UserManagementPanel from './components/UserManagementPanel.jsx'
 import './App.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
@@ -33,7 +34,9 @@ function App() {
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('authToken') ?? '')
   const [currentUser, setCurrentUser] = useState(null)
   const [adminCarts, setAdminCarts] = useState([])
+  const [adminUsers, setAdminUsers] = useState([])
   const [adminLoading, setAdminLoading] = useState(false)
+  const [userLoading, setUserLoading] = useState(false)
   const [editingProductId, setEditingProductId] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -110,14 +113,18 @@ function App() {
       const user = await request('/auth/me', { authToken: token })
       setCurrentUser(user)
       await loadStore(token, user)
-      if (user.role === 'admin') {
+      if (user.role === 'admin' || user.role === 'super_admin') {
         await loadAdminDashboard(token)
+      }
+      if (user.role === 'super_admin') {
+        await loadAdminUsers(token)
       }
     } catch {
       setAuthToken('')
       setCurrentUser(null)
       setCartItems([])
       setAdminCarts([])
+      setAdminUsers([])
     }
   }
 
@@ -195,6 +202,25 @@ function App() {
     }
   }
 
+  async function loadAdminUsers(tokenOverride = authToken) {
+    // Load user list for super admin.
+    const adminToken = typeof tokenOverride === 'string' ? tokenOverride : authToken
+    if (!adminToken) {
+      setAdminUsers([])
+      return
+    }
+
+    try {
+      setUserLoading(true)
+      const users = await request('/admin/users', { authToken: adminToken })
+      setAdminUsers(users)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setUserLoading(false)
+    }
+  }
+
   function updateAuthForm(event) {
     const { name, value } = event.target
     setAuthForm((current) => ({ ...current, [name]: value }))
@@ -237,8 +263,11 @@ function App() {
     setCurrentUser(data.user)
     setAuthForm(emptyAuthForm)
     await loadStore(data.access_token, data.user)
-    if (data.user.role === 'admin') {
+    if (data.user.role === 'admin' || data.user.role === 'super_admin') {
       await loadAdminDashboard(data.access_token)
+    }
+    if (data.user.role === 'super_admin') {
+      await loadAdminUsers(data.access_token)
     }
   }
 
@@ -313,6 +342,7 @@ function App() {
     setCurrentUser(null)
     setCartItems([])
     setAdminCarts([])
+    setAdminUsers([])
     setNotice('Logged out.')
     setError('')
   }
@@ -373,6 +403,9 @@ function App() {
       if (isAdmin) {
         await loadAdminDashboard()
       }
+      if (isSuperAdmin) {
+        await loadAdminUsers()
+      }
     } catch (err) {
       setError(err.message)
     }
@@ -392,6 +425,36 @@ function App() {
       if (isAdmin) {
         await loadAdminDashboard()
       }
+      if (isSuperAdmin) {
+        await loadAdminUsers()
+      }
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function changeUserRole(userId, role) {
+    try {
+      setError('')
+      await request(`/admin/users/${userId}/role`, {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      })
+      setNotice('User role updated.')
+      await loadAdminUsers()
+      await loadAdminDashboard()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function deleteAdminUser(userId) {
+    try {
+      setError('')
+      await request(`/admin/users/${userId}`, { method: 'DELETE' })
+      setNotice('User deleted.')
+      await loadAdminUsers()
+      await loadAdminDashboard()
     } catch (err) {
       setError(err.message)
     }
@@ -454,7 +517,8 @@ function App() {
 
   const cartTotal = cartItems.reduce((total, item) => total + item.subtotal, 0)
   const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0)
-  const isAdmin = currentUser?.role === 'admin'
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin'
+  const isSuperAdmin = currentUser?.role === 'super_admin'
   const canUseCart = currentUser?.role === 'customer'
   const adminCartValue = adminCarts.reduce((total, cart) => total + cart.total_price, 0)
 
@@ -567,6 +631,17 @@ function App() {
                 loading={adminLoading}
                 onRefresh={() => loadAdminDashboard()}
               />
+
+              {isSuperAdmin && (
+                <UserManagementPanel
+                  currentUser={currentUser}
+                  loading={userLoading}
+                  onDeleteUser={deleteAdminUser}
+                  onRefresh={() => loadAdminUsers()}
+                  onRoleChange={changeUserRole}
+                  users={adminUsers}
+                />
+              )}
 
               <InventoryPanel
                 editingProductId={editingProductId}
