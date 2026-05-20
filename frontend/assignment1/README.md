@@ -16,15 +16,16 @@ St Leonards' Tech Store is a single-page e-commerce shopping cart web app. This 
 - User registration and login
 - Password hashing for stored passwords
 - JWT-based authentication
-- Customer and admin roles
+- Customer, admin, and super admin roles
 - Product listing loaded from MySQL
-- Live product search by name or description
+- Live product search by name
 - Customer-only shopping cart
 - User-specific cart data
 - Add, update, and remove cart items
 - Stock validation so users cannot add more than the available stock
 - Admin-only product creation, editing, and deletion
 - Admin dashboard for viewing all customer carts
+- Super admin user management for changing roles and deleting users
 - Responsive single-page layout
 
 ## User Roles
@@ -57,6 +58,24 @@ Admins can:
 - View all customer carts in the admin dashboard
 
 Admins do not use the customer shopping cart interface.
+
+### Super Admin
+
+The super admin is the owner account for user management.
+
+Super admins can:
+
+- Do everything an admin can do
+- View all user accounts
+- Change users between `customer` and `admin`
+- Delete user accounts
+
+Super admins cannot:
+
+- Change or delete their own super admin account
+- Create another super admin from the website
+
+The first super admin is set manually in MySQL.
 
 ## Folder Structure
 
@@ -95,10 +114,15 @@ Customer cart:
 - `PUT /cart/items/{cart_item_id}`
 - `DELETE /cart/items/{cart_item_id}`
 
-Admin:
+Admin and super admin:
+
+- `GET /admin/carts`
+
+Super admin only:
 
 - `GET /admin/users`
-- `GET /admin/carts`
+- `PUT /admin/users/{user_id}/role`
+- `DELETE /admin/users/{user_id}`
 
 ## Running The Project
 
@@ -204,10 +228,53 @@ SET role = 'customer'
 WHERE username = 'terry';
 ```
 
+## Making A User A Super Admin
+
+Super admin is used for user management. This role is not created from the website because there should only be one owner account.
+
+To make one user the super admin:
+
+```sql
+USE ass1db;
+
+UPDATE users
+SET role = 'super_admin'
+WHERE username = 'terry';
+
+SELECT id, username, email, role
+FROM users;
+```
+
+After running the SQL, log out and log in again. The user management panel should appear for the super admin.
+
+## Workload Allocation
+
+Person 1:
+
+- Added backend dependencies
+- Added user database model
+- Added password hashing
+- Added JWT token authentication
+- Added register, login, and current-user API routes
+- Connected frontend login and register state
+- Added basic customer/admin role rendering
+
+Person 2:
+
+- Added admin user management schemas and backend helpers
+- Added protected super admin user management API routes
+- Added frontend user management panel
+- Connected role update and user delete actions
+- Added super admin role rules
+- Improved user management styling
+- Updated README documentation
+
 ## Notes
 
 - The frontend stores the JWT token in `localStorage` so the user stays logged in after refreshing.
 - Product create, update, and delete operations are protected on the backend, not only hidden in the frontend.
 - Customer cart records include `user_id`, so each customer has a separate cart.
 - The admin dashboard shows customer carts only, not admin accounts.
+- User management is only shown to the super admin.
+- Normal admins can manage products and view customer carts, but cannot manage user accounts.
 - Product images use direct image URLs, for example links that end in `.jpg`, `.jpeg`, `.png`, or `.webp`.
