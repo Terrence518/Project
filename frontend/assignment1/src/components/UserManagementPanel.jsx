@@ -38,8 +38,12 @@ function UserManagementPanel({
                 <div className="user-meta">
                   <span className="badge">{user.role}</span>
                   {isCurrentUser && <span className="owner-note">Current account</span>}
-                  <span>{user.cart_items} cart items</span>
-                  <strong>${Number(user.cart_total).toFixed(2)}</strong>
+                  {user.role === 'customer' && (
+                    <>
+                      <span>{user.cart_items} cart items</span>
+                      <strong>${Number(user.cart_total).toFixed(2)}</strong>
+                    </>
+                  )}
                 </div>
 
                 <div className="user-actions">
@@ -49,6 +53,9 @@ function UserManagementPanel({
                     onChange={(event) => onRoleChange(user.id, event.target.value)}
                     value={user.role}
                   >
+                    {user.role === 'super_admin' && (
+                      <option value="super_admin">super_admin</option>
+                    )}
                     <option value="customer">customer</option>
                     <option value="admin">admin</option>
                   </select>
