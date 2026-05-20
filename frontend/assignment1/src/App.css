@@ -157,6 +157,78 @@
   gap: 14px;
 }
 
+.user-management {
+  display: grid;
+  gap: 18px;
+}
+
+.user-table {
+  display: grid;
+  gap: 12px;
+}
+
+.user-row {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid rgba(79, 41, 24, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.user-main h3 {
+  margin: 0;
+}
+
+.user-main p {
+  margin-top: 4px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.user-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.user-meta strong {
+  color: var(--heading);
+}
+
+.owner-note {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(28, 95, 70, 0.12);
+  color: #14532d;
+  font-size: 0.82rem;
+}
+
+.user-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.user-actions select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid rgba(79, 41, 24, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--heading);
+  padding: 12px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.user-actions select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .admin-cart-card {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(79, 41, 24, 0.1);
@@ -543,6 +615,16 @@
 
   .admin-stats {
     grid-template-columns: 1fr;
+  }
+
+  .user-actions {
+    justify-content: stretch;
+    flex-direction: column;
+  }
+
+  .user-actions select,
+  .user-actions button {
+    width: 100%;
   }
 
   .toolbar {

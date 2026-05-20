@@ -113,8 +113,10 @@ function App() {
       const user = await request('/auth/me', { authToken: token })
       setCurrentUser(user)
       await loadStore(token, user)
-      if (user.role === 'admin') {
+      if (user.role === 'admin' || user.role === 'super_admin') {
         await loadAdminDashboard(token)
+      }
+      if (user.role === 'super_admin') {
         await loadAdminUsers(token)
       }
     } catch {
@@ -201,7 +203,7 @@ function App() {
   }
 
   async function loadAdminUsers(tokenOverride = authToken) {
-    // Load user list for admin.
+    // Load user list for super admin.
     const adminToken = typeof tokenOverride === 'string' ? tokenOverride : authToken
     if (!adminToken) {
       setAdminUsers([])
@@ -261,8 +263,10 @@ function App() {
     setCurrentUser(data.user)
     setAuthForm(emptyAuthForm)
     await loadStore(data.access_token, data.user)
-    if (data.user.role === 'admin') {
+    if (data.user.role === 'admin' || data.user.role === 'super_admin') {
       await loadAdminDashboard(data.access_token)
+    }
+    if (data.user.role === 'super_admin') {
       await loadAdminUsers(data.access_token)
     }
   }
@@ -398,6 +402,8 @@ function App() {
       await loadStore()
       if (isAdmin) {
         await loadAdminDashboard()
+      }
+      if (isSuperAdmin) {
         await loadAdminUsers()
       }
     } catch (err) {
@@ -418,6 +424,8 @@ function App() {
       await loadStore()
       if (isAdmin) {
         await loadAdminDashboard()
+      }
+      if (isSuperAdmin) {
         await loadAdminUsers()
       }
     } catch (err) {
