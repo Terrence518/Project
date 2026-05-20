@@ -509,7 +509,8 @@ function App() {
 
   const cartTotal = cartItems.reduce((total, item) => total + item.subtotal, 0)
   const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0)
-  const isAdmin = currentUser?.role === 'admin'
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin'
+  const isSuperAdmin = currentUser?.role === 'super_admin'
   const canUseCart = currentUser?.role === 'customer'
   const adminCartValue = adminCarts.reduce((total, cart) => total + cart.total_price, 0)
 
@@ -623,14 +624,16 @@ function App() {
                 onRefresh={() => loadAdminDashboard()}
               />
 
-              <UserManagementPanel
-                currentUser={currentUser}
-                loading={userLoading}
-                onDeleteUser={deleteAdminUser}
-                onRefresh={() => loadAdminUsers()}
-                onRoleChange={changeUserRole}
-                users={adminUsers}
-              />
+              {isSuperAdmin && (
+                <UserManagementPanel
+                  currentUser={currentUser}
+                  loading={userLoading}
+                  onDeleteUser={deleteAdminUser}
+                  onRefresh={() => loadAdminUsers()}
+                  onRoleChange={changeUserRole}
+                  users={adminUsers}
+                />
+              )}
 
               <InventoryPanel
                 editingProductId={editingProductId}

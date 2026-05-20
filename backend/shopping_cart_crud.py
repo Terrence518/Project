@@ -63,7 +63,7 @@ class UserRead(UserBase):
 
 
 class UserRoleUpdate(SQLModel):
-    # Admin can change a user's role.
+    # Super admin can change users between customer and admin.
     role: Literal["customer", "admin"]
 
 
