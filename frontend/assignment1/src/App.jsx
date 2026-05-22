@@ -38,6 +38,8 @@ function App() {
   const [adminUsers, setAdminUsers] = useState([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [userLoading, setUserLoading] = useState(false)
+  const [authError, setAuthError] = useState('')
+  const [authNotice, setAuthNotice] = useState('')
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [isAccountOpen, setIsAccountOpen] = useState(false)
   const [isAdminOpen, setIsAdminOpen] = useState(false)
@@ -269,8 +271,8 @@ function App() {
   function switchAuthMode(mode) {
     setAuthMode(mode)
     setAuthForm(emptyAuthForm)
-    setError('')
-    setNotice('')
+    setAuthError('')
+    setAuthNotice('')
   }
 
   function updateSearchTerm(event) {
@@ -329,6 +331,9 @@ function App() {
     setAuthToken(data.access_token)
     setCurrentUser(data.user)
     setAuthForm(emptyAuthForm)
+    setIsAccountOpen(false)
+    setAuthError('')
+    setNotice('')
     await loadStore(data.access_token, data.user)
     if (data.user.role === 'admin' || data.user.role === 'super_admin') {
       await loadAdminDashboard(data.access_token)
@@ -414,8 +419,11 @@ function App() {
     setCartItems([])
     setAdminCarts([])
     setAdminUsers([])
+    closeAllPanels()
     setNotice('Logged out.')
     setError('')
+    setAuthError('')
+    setAuthNotice('')
   }
 
   function getCartQuantityForProduct(productId) {
@@ -735,6 +743,8 @@ function App() {
               <AuthPanel
                 authForm={authForm}
                 authMode={authMode}
+                error={authError}
+                notice={authNotice}
                 onAuthFormChange={updateAuthForm}
                 onAuthModeChange={switchAuthMode}
                 onLogin={loginUser}
