@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminDashboard from './components/AdminDashboard.jsx'
+import AccountPanel from './components/AccountPanel.jsx'
 import AuthPanel from './components/AuthPanel.jsx'
 import CartPanel from './components/CartPanel.jsx'
 import InventoryPanel from './components/InventoryPanel.jsx'
@@ -37,6 +38,12 @@ function App() {
   const [adminUsers, setAdminUsers] = useState([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [userLoading, setUserLoading] = useState(false)
+  const [authError, setAuthError] = useState('')
+  const [authNotice, setAuthNotice] = useState('')
+  const [isCartOpen, setIsCartOpen] = useState(false)
+  const [isAccountOpen, setIsAccountOpen] = useState(false)
+  const [isAdminOpen, setIsAdminOpen] = useState(false)
+  const [activeAdminTab, setActiveAdminTab] = useState('dashboard')
   const [editingProductId, setEditingProductId] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -71,6 +78,41 @@ function App() {
       searchInputRef.current?.focus()
     }
   }, [isSearchOpen])
+
+  useEffect(() => {
+    // Stop the page behind drawers and modals from scrolling.
+    const shouldLockScroll = isCartOpen || isAccountOpen || isAdminOpen
+    document.body.classList.toggle('overlay-open', shouldLockScroll)
+
+    return () => {
+      document.body.classList.remove('overlay-open')
+    }
+  }, [isAccountOpen, isAdminOpen, isCartOpen])
+
+  useEffect(() => {
+    // Keep role-specific panels closed when the role no longer allows them.
+    if (!currentUser) {
+      setIsCartOpen(false)
+      setIsAdminOpen(false)
+      setActiveAdminTab('dashboard')
+      return
+    }
+
+    if (currentUser.role !== 'customer') {
+      setIsCartOpen(false)
+    }
+
+    if (currentUser.role !== 'admin' && currentUser.role !== 'super_admin') {
+      setIsAdminOpen(false)
+      setActiveAdminTab('dashboard')
+    }
+  }, [currentUser])
+
+  useEffect(() => {
+    if (currentUser?.role !== 'super_admin' && activeAdminTab === 'users') {
+      setActiveAdminTab('dashboard')
+    }
+  }, [activeAdminTab, currentUser])
 
   async function request(path, options = {}) {
     // Helper for calling the backend.
@@ -229,8 +271,8 @@ function App() {
   function switchAuthMode(mode) {
     setAuthMode(mode)
     setAuthForm(emptyAuthForm)
-    setError('')
-    setNotice('')
+    setAuthError('')
+    setAuthNotice('')
   }
 
   function updateSearchTerm(event) {
@@ -238,12 +280,7 @@ function App() {
   }
 
   function toggleSearch() {
-    if (isSearchOpen && !searchTerm.trim()) {
-      setIsSearchOpen(false)
-      return
-    }
-
-    setIsSearchOpen(true)
+    setIsSearchOpen((current) => !current)
   }
 
   function handleSearchBlur() {
@@ -257,11 +294,46 @@ function App() {
     setEditingProductId(null)
   }
 
+  function openAccountPanel() {
+    setIsAccountOpen(true)
+  }
+
+  function openCartPanel() {
+    if (!currentUser) {
+      setIsAccountOpen(true)
+      setAuthMode('login')
+      return
+    }
+
+    if (currentUser.role !== 'customer') {
+      setIsAdminOpen(true)
+      setActiveAdminTab('dashboard')
+      return
+    }
+
+    setIsCartOpen(true)
+  }
+
+  function openAdminWorkspace() {
+    setIsAdminOpen(true)
+    setActiveAdminTab('dashboard')
+  }
+
+  function closeAllPanels() {
+    setIsCartOpen(false)
+    setIsAccountOpen(false)
+    setIsAdminOpen(false)
+    setActiveAdminTab('dashboard')
+  }
+
   async function saveAuthSession(data) {
     // Save login and load user data.
     setAuthToken(data.access_token)
     setCurrentUser(data.user)
     setAuthForm(emptyAuthForm)
+    setIsAccountOpen(false)
+    setAuthError('')
+    setNotice('')
     await loadStore(data.access_token, data.user)
     if (data.user.role === 'admin' || data.user.role === 'super_admin') {
       await loadAdminDashboard(data.access_token)
@@ -286,12 +358,13 @@ function App() {
     }
 
     if (payload.password.length > 72) {
-      setError('Password must be 72 characters or fewer.')
+      setAuthError('Password must be 72 characters or fewer.')
       return
     }
 
     try {
-      setError('')
+      setAuthError('')
+      setAuthNotice('')
       // Register, then login.
       await request('/auth/register', {
         method: 'POST',
@@ -305,9 +378,10 @@ function App() {
         }),
       })
       await saveAuthSession(loginData)
-      setNotice('Account created and logged in.')
+      setNotice('Logged in.')
+      setAuthNotice('Account created and logged in.')
     } catch (err) {
-      setError(err.message)
+      setAuthError(err.message)
     }
   }
 
@@ -320,20 +394,22 @@ function App() {
     }
 
     if (!payload.username || !payload.password) {
-      setError('Enter your username and password.')
+      setAuthError('Enter your username and password.')
       return
     }
 
     try {
-      setError('')
+      setAuthError('')
+      setAuthNotice('')
       const data = await request('/auth/login', {
         method: 'POST',
         body: JSON.stringify(payload),
       })
       await saveAuthSession(data)
       setNotice('Logged in.')
+      setAuthNotice('Logged in.')
     } catch (err) {
-      setError(err.message)
+      setAuthError(err.message)
     }
   }
 
@@ -343,8 +419,11 @@ function App() {
     setCartItems([])
     setAdminCarts([])
     setAdminUsers([])
+    closeAllPanels()
     setNotice('Logged out.')
     setError('')
+    setAuthError('')
+    setAuthNotice('')
   }
 
   function getCartQuantityForProduct(productId) {
@@ -520,16 +599,65 @@ function App() {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin'
   const isSuperAdmin = currentUser?.role === 'super_admin'
   const canUseCart = currentUser?.role === 'customer'
+  const showCartButton = !currentUser || canUseCart
   const adminCartValue = adminCarts.reduce((total, cart) => total + cart.total_price, 0)
 
   return (
     <main className="app-shell">
+      <header className="topbar">
+        <div className="brand-lockup">
+          <span className="eyebrow">St Leonards</span>
+          <strong>Tech Store</strong>
+        </div>
+
+        <div className="topbar-search">
+          {isSearchOpen && (
+            <input
+              className="search-input search-input--topbar"
+              onBlur={handleSearchBlur}
+              onChange={updateSearchTerm}
+              placeholder="Search products"
+              ref={searchInputRef}
+              type="search"
+              value={searchTerm}
+            />
+          )}
+          <button className="ghost-button" onClick={toggleSearch} type="button">
+            {isSearchOpen ? 'Close search' : 'Search'}
+          </button>
+        </div>
+
+        <div className="topbar-actions">
+          {showCartButton && (
+            <button className="ghost-button" onClick={openCartPanel} type="button">
+              Cart{canUseCart ? ` (${totalItems})` : ''}
+            </button>
+          )}
+          <button className="ghost-button" onClick={openAccountPanel} type="button">
+            {currentUser ? 'Account' : 'Login'}
+          </button>
+          {isAdmin && (
+            <button className="ghost-button" onClick={openAdminWorkspace} type="button">
+              Admin
+            </button>
+          )}
+        </div>
+      </header>
+
+      {(error || notice) && (
+        <section className="message-strip">
+          {error && <p className="message error">{error}</p>}
+          {notice && <p className="message notice">{notice}</p>}
+        </section>
+      )}
+
       <section className="hero-panel">
         <div className="hero-copy">
-          <h1>St Leonards' Tech Store</h1>
+          <p className="eyebrow">Curated commerce</p>
+          <h1>Practical tech for everyday setups.</h1>
           <p className="hero-text">
-            Welcome to St Leonards' Tech Store, your place for practical and
-            reliable tech accessories for study, work, and everyday use.
+            Browse the catalog first, then slide open your cart, account, or
+            admin tools only when you need them.
           </p>
         </div>
 
@@ -575,46 +703,76 @@ function App() {
         </div>
       </section>
 
-      {(error || notice) && (
-        <section className="message-strip">
-          {error && <p className="message error">{error}</p>}
-          {notice && <p className="message notice">{notice}</p>}
-        </section>
-      )}
-
       <section className="content-grid">
         <ProductCatalog
           getCartQuantityForProduct={getCartQuantityForProduct}
           canUseCart={canUseCart}
           isAdmin={isAdmin}
           isLoggedIn={Boolean(currentUser)}
-          isSearchOpen={isSearchOpen}
           loading={loading}
           onAddToCart={addProductToCart}
           onEditProduct={startEditProduct}
           onRefresh={() => loadStore()}
           onRemoveProduct={removeProduct}
-          onSearchBlur={handleSearchBlur}
-          onSearchChange={updateSearchTerm}
-          onSearchToggle={toggleSearch}
           products={products}
-          searchInputRef={searchInputRef}
           searchTerm={searchTerm}
         />
+      </section>
 
-        <aside className="side-column">
-          <AuthPanel
-            authForm={authForm}
-            authMode={authMode}
-            currentUser={currentUser}
-            onAuthFormChange={updateAuthForm}
-            onAuthModeChange={switchAuthMode}
-            onLogin={loginUser}
-            onLogout={logoutUser}
-            onRegister={registerUser}
+      {isAccountOpen && (
+        <div className="overlay-layer" role="presentation">
+          <button
+            aria-label="Close account panel"
+            className="overlay-backdrop"
+            onClick={() => setIsAccountOpen(false)}
+            type="button"
           />
+          <aside className="overlay-shell overlay-shell--drawer" role="dialog" aria-modal="true">
+            <div className="overlay-head">
+              <div>
+                <p className="eyebrow">Account</p>
+                <h2>{currentUser ? 'Your profile' : 'Login or register'}</h2>
+              </div>
+              <button className="ghost-button" onClick={() => setIsAccountOpen(false)} type="button">
+                Close
+              </button>
+            </div>
+            {currentUser ? (
+              <AccountPanel currentUser={currentUser} onLogout={logoutUser} />
+            ) : (
+              <AuthPanel
+                authForm={authForm}
+                authMode={authMode}
+                error={authError}
+                notice={authNotice}
+                onAuthFormChange={updateAuthForm}
+                onAuthModeChange={switchAuthMode}
+                onLogin={loginUser}
+                onRegister={registerUser}
+              />
+            )}
+          </aside>
+        </div>
+      )}
 
-          {canUseCart && (
+      {canUseCart && isCartOpen && (
+        <div className="overlay-layer" role="presentation">
+          <button
+            aria-label="Close cart panel"
+            className="overlay-backdrop"
+            onClick={() => setIsCartOpen(false)}
+            type="button"
+          />
+          <aside className="overlay-shell overlay-shell--drawer" role="dialog" aria-modal="true">
+            <div className="overlay-head">
+              <div>
+                <p className="eyebrow">Shopping cart</p>
+                <h2>Your items</h2>
+              </div>
+              <button className="ghost-button" onClick={() => setIsCartOpen(false)} type="button">
+                Close
+              </button>
+            </div>
             <CartPanel
               cartItems={cartItems}
               cartTotal={cartTotal}
@@ -622,17 +780,81 @@ function App() {
               onRemoveCartItem={removeCartItem}
               totalItems={totalItems}
             />
-          )}
+          </aside>
+        </div>
+      )}
 
-          {isAdmin && (
-            <>
-              <AdminDashboard
-                carts={adminCarts}
-                loading={adminLoading}
-                onRefresh={() => loadAdminDashboard()}
-              />
+      {isAdminOpen && (
+        <div className="overlay-layer overlay-layer--admin" role="presentation">
+          <button
+            aria-label="Close admin workspace"
+            className="overlay-backdrop"
+            onClick={() => setIsAdminOpen(false)}
+            type="button"
+          />
+          <section className="overlay-shell overlay-shell--workspace" role="dialog" aria-modal="true">
+            <div className="overlay-head">
+              <div>
+                <p className="eyebrow">Admin workspace</p>
+                <h2>Operations center</h2>
+              </div>
+              <button className="ghost-button" onClick={() => setIsAdminOpen(false)} type="button">
+                Close
+              </button>
+            </div>
 
+            <div className="workspace-tabs" role="tablist" aria-label="Admin sections">
+              <button
+                aria-selected={activeAdminTab === 'dashboard'}
+                className={`tab-button ${activeAdminTab === 'dashboard' ? 'active' : ''}`}
+                onClick={() => setActiveAdminTab('dashboard')}
+                role="tab"
+                type="button"
+              >
+                Dashboard
+              </button>
+              <button
+                aria-selected={activeAdminTab === 'inventory'}
+                className={`tab-button ${activeAdminTab === 'inventory' ? 'active' : ''}`}
+                onClick={() => setActiveAdminTab('inventory')}
+                role="tab"
+                type="button"
+              >
+                Inventory
+              </button>
               {isSuperAdmin && (
+                <button
+                  aria-selected={activeAdminTab === 'users'}
+                  className={`tab-button ${activeAdminTab === 'users' ? 'active' : ''}`}
+                  onClick={() => setActiveAdminTab('users')}
+                  role="tab"
+                  type="button"
+                >
+                  Users
+                </button>
+              )}
+            </div>
+
+            <div className="workspace-body" role="tabpanel">
+              {activeAdminTab === 'dashboard' && (
+                <AdminDashboard
+                  carts={adminCarts}
+                  loading={adminLoading}
+                  onRefresh={() => loadAdminDashboard()}
+                />
+              )}
+
+              {activeAdminTab === 'inventory' && (
+                <InventoryPanel
+                  editingProductId={editingProductId}
+                  onCancelEdit={resetProductForm}
+                  onProductFormChange={updateProductForm}
+                  onSubmit={submitProduct}
+                  productForm={productForm}
+                />
+              )}
+
+              {activeAdminTab === 'users' && isSuperAdmin && (
                 <UserManagementPanel
                   currentUser={currentUser}
                   loading={userLoading}
@@ -642,18 +864,10 @@ function App() {
                   users={adminUsers}
                 />
               )}
-
-              <InventoryPanel
-                editingProductId={editingProductId}
-                onCancelEdit={resetProductForm}
-                onProductFormChange={updateProductForm}
-                onSubmit={submitProduct}
-                productForm={productForm}
-              />
-            </>
-          )}
-        </aside>
-      </section>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   )
 }

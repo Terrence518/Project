@@ -1,32 +1,13 @@
 function AuthPanel({
   authForm,
   authMode,
-  currentUser,
+  error,
+  notice,
   onAuthFormChange,
   onAuthModeChange,
   onLogin,
-  onLogout,
   onRegister,
 }) {
-  if (currentUser) {
-    // Show account info after login.
-    return (
-      <section className="panel account-panel">
-        <div>
-          <span className="stat-label">Signed in</span>
-          <h2>{currentUser.username}</h2>
-          <p className="panel-note">{currentUser.email}</p>
-        </div>
-        <div className="account-row">
-          <span className="badge">{currentUser.role}</span>
-          <button className="ghost-button" onClick={onLogout} type="button">
-            Logout
-          </button>
-        </div>
-      </section>
-    )
-  }
-
   const isRegistering = authMode === 'register'
 
   return (
@@ -41,6 +22,13 @@ function AuthPanel({
           </p>
         </div>
       </div>
+
+      {(error || notice) && (
+        <div className="auth-messages">
+          {error && <p className="message error">{error}</p>}
+          {notice && <p className="message notice">{notice}</p>}
+        </div>
+      )}
 
       {/* Same form for login and register. */}
       <form
