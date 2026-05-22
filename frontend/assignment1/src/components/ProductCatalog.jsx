@@ -2,11 +2,6 @@ function ProductCatalog({
   products,
   loading,
   searchTerm,
-  isSearchOpen,
-  searchInputRef,
-  onSearchChange,
-  onSearchToggle,
-  onSearchBlur,
   onRefresh,
   onAddToCart,
   onEditProduct,
@@ -21,33 +16,11 @@ function ProductCatalog({
       <div className="section-heading">
         <div>
           <h2>Products</h2>
+          <p className="panel-note">
+            Browse the catalog here and use the top bar for search, cart, and account actions.
+          </p>
         </div>
         <div className="toolbar">
-          {/* Show search box when user opens it. */}
-          {(isSearchOpen || searchTerm.trim()) && (
-            <input
-              className="search-input"
-              onBlur={onSearchBlur}
-              onChange={onSearchChange}
-              placeholder="Search products"
-              ref={searchInputRef}
-              type="search"
-              value={searchTerm}
-            />
-          )}
-          <button
-            aria-label="Search products"
-            className="icon-button"
-            onClick={onSearchToggle}
-            type="button"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M10.5 4a6.5 6.5 0 1 0 4.02 11.61l4.43 4.43 1.41-1.41-4.43-4.43A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
           <button className="ghost-button" onClick={onRefresh} type="button">
             Refresh
           </button>
