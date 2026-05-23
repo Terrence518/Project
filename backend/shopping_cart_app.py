@@ -12,33 +12,56 @@ from shopping_cart_crud import (
     CartItemCreate,
     CartItemRead,
     CartItemUpdate,
+    CartSummaryRead,
+    CouponCreate,
+    CouponRead,
+    CouponUpdate,
     ProductCreate,
     ProductRead,
     ProductUpdate,
+    ReviewCreate,
+    ReviewRead,
+    ReviewUpdate,
     Token,
     User,
     UserCreate,
     UserLogin,
     UserRead,
     UserRoleUpdate,
+    WishlistItemRead,
     add_to_cart,
+    add_wishlist_item,
+    apply_coupon_to_cart,
     authenticate_user,
+    build_product_read,
     create_login_token,
+    create_coupon,
+    create_review,
     create_product,
     create_user,
     delete_cart_item,
+    delete_coupon,
     delete_product,
     delete_user,
+    delete_review,
+    delete_wishlist_item,
+    get_cart_summary,
     get_all_user_carts,
     get_admin_users,
+    get_coupons,
     get_cart_items,
     get_product_by_id,
+    get_wishlist_items,
+    get_product_reviews,
     get_products,
     get_session,
     get_user_from_token,
     initialize_database,
+    remove_coupon_from_cart,
     update_cart_item,
+    update_coupon,
     update_product,
+    update_review,
     update_user_role,
 )
 
@@ -215,7 +238,7 @@ def read_products(
     search: Optional[str] = None,
     db: Session = Depends(get_session),
 ):
-    return get_products(db, skip=skip, limit=limit, search=search)
+    return [build_product_read(db, product) for product in get_products(db, skip=skip, limit=limit, search=search)]
 
 
 @app.get("/products/{product_id}", response_model=ProductRead)
@@ -223,7 +246,7 @@ def read_product(product_id: int, db: Session = Depends(get_session)):
     product = get_product_by_id(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    return product
+    return build_product_read(db, product)
 
 
 @app.post("/products", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
@@ -233,7 +256,8 @@ def add_product(
     _: User = Depends(get_current_admin),
 ):
     # Only admin can add products.
-    return create_product(db, product)
+    created = create_product(db, product)
+    return build_product_read(db, created)
 
 
 @app.put("/products/{product_id}", response_model=ProductRead)
@@ -250,7 +274,7 @@ def edit_product(
 
     if not updated_product:
         raise HTTPException(status_code=404, detail="Product not found")
-    return updated_product
+    return build_product_read(db, updated_product)
 
 
 @app.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -272,6 +296,14 @@ def read_cart(
 ):
     # Return this user's cart only.
     return get_cart_items(db, current_user.id)
+
+
+@app.get("/cart/summary", response_model=CartSummaryRead)
+def read_cart_summary(
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    return get_cart_summary(db, current_user.id)
 
 
 @app.post(
@@ -319,3 +351,175 @@ def remove_cart_item(
     if not deleted:
         raise HTTPException(status_code=404, detail="Cart item not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/wishlist", response_model=list[WishlistItemRead])
+def read_wishlist(
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "customer":
+        raise HTTPException(status_code=403, detail="Customer access is required")
+    return get_wishlist_items(db, current_user.id)
+
+
+@app.post("/wishlist/{product_id}", response_model=WishlistItemRead, status_code=status.HTTP_201_CREATED)
+def create_wishlist_item(
+    product_id: int,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "customer":
+        raise HTTPException(status_code=403, detail="Customer access is required")
+
+    try:
+        return add_wishlist_item(db, current_user.id, product_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/wishlist/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_wishlist(
+    product_id: int,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "customer":
+        raise HTTPException(status_code=403, detail="Customer access is required")
+
+    deleted = delete_wishlist_item(db, current_user.id, product_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Wishlist item not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/products/{product_id}/reviews", response_model=list[ReviewRead])
+def read_product_reviews_route(product_id: int, db: Session = Depends(get_session)):
+    if not get_product_by_id(db, product_id):
+        raise HTTPException(status_code=404, detail="Product not found")
+    return get_product_reviews(db, product_id)
+
+
+@app.post("/products/{product_id}/reviews", response_model=ReviewRead, status_code=status.HTTP_201_CREATED)
+def create_product_review(
+    product_id: int,
+    review: ReviewCreate,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "customer":
+        raise HTTPException(status_code=403, detail="Customer access is required")
+
+    if review.product_id != product_id:
+        raise HTTPException(status_code=400, detail="Product ID does not match.")
+
+    try:
+        return create_review(db, current_user.id, review)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/reviews/{review_id}", response_model=ReviewRead)
+def edit_review_route(
+    review_id: int,
+    review: ReviewUpdate,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        updated_review = update_review(db, review_id, review, current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if not updated_review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    return updated_review
+
+
+@app.delete("/reviews/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_review_route(
+    review_id: int,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        deleted = delete_review(db, review_id, current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Review not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/coupons", response_model=list[CouponRead])
+def read_coupons(db: Session = Depends(get_session)):
+    return get_coupons(db, active_only=True)
+
+
+@app.get("/admin/coupons", response_model=list[CouponRead])
+def read_admin_coupons(
+    db: Session = Depends(get_session),
+    _: User = Depends(get_current_admin),
+):
+    return get_coupons(db, active_only=False)
+
+
+@app.post("/admin/coupons", response_model=CouponRead, status_code=status.HTTP_201_CREATED)
+def create_admin_coupon(
+    coupon: CouponCreate,
+    db: Session = Depends(get_session),
+    current_admin: User = Depends(get_current_admin),
+):
+    try:
+        return CouponRead.model_validate(create_coupon(db, coupon, current_admin.id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/admin/coupons/{coupon_id}", response_model=CouponRead)
+def edit_admin_coupon(
+    coupon_id: int,
+    coupon: CouponUpdate,
+    db: Session = Depends(get_session),
+    _: User = Depends(get_current_admin),
+):
+    try:
+        updated_coupon = update_coupon(db, coupon_id, coupon)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not updated_coupon:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    return CouponRead.model_validate(updated_coupon)
+
+
+@app.delete("/admin/coupons/{coupon_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_admin_coupon(
+    coupon_id: int,
+    db: Session = Depends(get_session),
+    _: User = Depends(get_current_admin),
+):
+    deleted = delete_coupon(db, coupon_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/cart/apply-coupon", response_model=CartSummaryRead)
+def apply_coupon_route(
+    payload: dict,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "customer":
+        raise HTTPException(status_code=403, detail="Customer access is required")
+
+    code = str(payload.get("code", "")).strip()
+    if not code:
+        removed = remove_coupon_from_cart(db, current_user.id)
+        if removed:
+            return get_cart_summary(db, current_user.id)
+        raise HTTPException(status_code=400, detail="Please enter a coupon code.")
+
+    try:
+        return apply_coupon_to_cart(db, current_user.id, code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid coupon code.") from exc

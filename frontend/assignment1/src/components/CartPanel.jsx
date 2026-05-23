@@ -2,6 +2,12 @@ function CartPanel({
   cartItems,
   totalItems,
   cartTotal,
+  cartSummary,
+  couponForm,
+  couponMessage,
+  onApplyCoupon,
+  onCouponFormChange,
+  onClearCoupon,
   onChangeCartQuantity,
   onRemoveCartItem,
 }) {
@@ -64,9 +70,45 @@ function CartPanel({
           </div>
 
           <div className="cart-summary">
-            <span>Total</span>
-            <strong>${cartTotal.toFixed(2)}</strong>
+            <div>
+              <span>Subtotal</span>
+              <strong>${cartSummary.subtotal.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span>Discount</span>
+              <strong>-${cartSummary.discount_amount.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span>Total</span>
+              <strong>${cartSummary.total.toFixed(2)}</strong>
+            </div>
           </div>
+
+          <form className="coupon-form" onSubmit={onApplyCoupon}>
+            <label>
+              Coupon code
+              <input
+                name="code"
+                onChange={onCouponFormChange}
+                placeholder="SAVE10"
+                value={couponForm.code}
+              />
+            </label>
+            {couponMessage && <p className="panel-note">{couponMessage}</p>}
+            <div className="form-row">
+              <button className="primary-button submit-button" type="submit">
+                Apply coupon
+              </button>
+              <button className="ghost-button submit-button" onClick={onClearCoupon} type="button">
+                Clear
+              </button>
+            </div>
+            {cartSummary.coupon && (
+              <p className="panel-note">
+                Applied coupon: {cartSummary.coupon.code}
+              </p>
+            )}
+          </form>
         </>
       )}
     </section>
