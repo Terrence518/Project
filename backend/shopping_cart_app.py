@@ -13,9 +13,12 @@ from shopping_cart_crud import (
     CartItemRead,
     CartItemUpdate,
     CartSummaryRead,
+    CheckoutCreate,
     CouponCreate,
     CouponRead,
     CouponUpdate,
+    OrderRead,
+    OrderStatusUpdate,
     ProductCreate,
     ProductRead,
     ProductUpdate,
@@ -34,6 +37,7 @@ from shopping_cart_crud import (
     apply_coupon_to_cart,
     authenticate_user,
     build_product_read,
+    create_checkout_order,
     create_login_token,
     create_coupon,
     create_review,
@@ -47,9 +51,11 @@ from shopping_cart_crud import (
     delete_wishlist_item,
     get_cart_summary,
     get_all_user_carts,
+    get_all_orders,
     get_admin_users,
     get_coupons,
     get_cart_items,
+    get_orders_for_user,
     get_product_by_id,
     get_wishlist_items,
     get_product_reviews,
@@ -60,6 +66,7 @@ from shopping_cart_crud import (
     remove_coupon_from_cart,
     update_cart_item,
     update_coupon,
+    update_order_status,
     update_product,
     update_review,
     update_user_role,
@@ -523,3 +530,50 @@ def apply_coupon_route(
         return apply_coupon_to_cart(db, current_user.id, code)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid coupon code.") from exc
+
+
+@app.post("/checkout", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
+def checkout_cart(
+    checkout: CheckoutCreate,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "customer":
+        raise HTTPException(status_code=403, detail="Customer access is required")
+
+    try:
+        return create_checkout_order(db, current_user.id, checkout)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/orders", response_model=list[OrderRead])
+def read_my_orders(
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "customer":
+        raise HTTPException(status_code=403, detail="Customer access is required")
+
+    return get_orders_for_user(db, current_user.id)
+
+
+@app.get("/admin/orders", response_model=list[OrderRead])
+def read_admin_orders(
+    db: Session = Depends(get_session),
+    _: User = Depends(get_current_admin),
+):
+    return get_all_orders(db)
+
+
+@app.put("/admin/orders/{order_id}/status", response_model=OrderRead)
+def edit_admin_order_status(
+    order_id: int,
+    status_update: OrderStatusUpdate,
+    db: Session = Depends(get_session),
+    _: User = Depends(get_current_admin),
+):
+    updated_order = update_order_status(db, order_id, status_update)
+    if not updated_order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return updated_order
