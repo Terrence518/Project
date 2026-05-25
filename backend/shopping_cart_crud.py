@@ -637,6 +637,132 @@ def remove_coupon_from_cart(session: Session, user_id: int) -> bool:
     return True
 
 
+def _validate_mock_payment(checkout: CheckoutCreate) -> None:
+    # Simple checks for mock payment only.
+    card_number = checkout.card_number.replace(" ", "")
+    if not card_number.isdigit():
+        raise ValueError("Card number must contain numbers only.")
+
+    cvv = checkout.cvv.strip()
+    if not cvv.isdigit():
+        raise ValueError("CVV must contain numbers only.")
+
+
+def _build_order_read(session: Session, order: Order) -> OrderRead:
+    user = get_user_by_id(session, order.user_id or 0)
+    if not user:
+        raise ValueError("Order references missing user.")
+
+    order_items = session.exec(
+        select(OrderItem).where(OrderItem.order_id == order.id)
+    ).all()
+
+    return OrderRead(
+        id=order.id,
+        user_id=user.id,
+        username=user.username,
+        delivery_address=order.delivery_address,
+        subtotal=order.subtotal,
+        discount_amount=order.discount_amount,
+        total=order.total,
+        payment_status=order.payment_status,
+        order_status=order.order_status,
+        created_at=order.created_at,
+        items=[
+            OrderItemRead(
+                id=item.id,
+                product_id=item.product_id,
+                product_name=item.product_name,
+                unit_price=item.unit_price,
+                quantity=item.quantity,
+                subtotal=item.subtotal,
+            )
+            for item in order_items
+        ],
+    )
+
+
+def create_checkout_order(
+    session: Session, user_id: int, checkout: CheckoutCreate
+) -> OrderRead:
+    # Turn the cart into an order after mock payment.
+    _validate_mock_payment(checkout)
+    cart_items = session.exec(
+        select(CartItem).where(CartItem.user_id == user_id)
+    ).all()
+    if not cart_items:
+        raise ValueError("Your cart is empty.")
+
+    summary = get_cart_summary(session, user_id)
+    order = Order(
+        user_id=user_id,
+        delivery_address=checkout.delivery_address.strip(),
+        subtotal=summary.subtotal,
+        discount_amount=summary.discount_amount,
+        total=summary.total,
+        payment_status="paid",
+        order_status="paid",
+    )
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+
+    for cart_item in cart_items:
+        product = get_product_by_id(session, cart_item.product_id)
+        if not product:
+            raise ValueError("Product not found for cart item.")
+        if cart_item.quantity > product.stock:
+            raise ValueError(f"Only {product.stock} item(s) are available for {product.name}.")
+
+        product.stock -= cart_item.quantity
+        session.add(product)
+        session.add(
+            OrderItem(
+                order_id=order.id,
+                product_id=product.id,
+                product_name=product.name,
+                unit_price=product.price,
+                quantity=cart_item.quantity,
+                subtotal=round(product.price * cart_item.quantity, 2),
+            )
+        )
+        session.delete(cart_item)
+
+    cart_coupon = get_cart_coupon(session, user_id)
+    if cart_coupon:
+        session.delete(cart_coupon)
+
+    session.commit()
+    session.refresh(order)
+    return _build_order_read(session, order)
+
+
+def get_orders_for_user(session: Session, user_id: int) -> list[OrderRead]:
+    orders = session.exec(
+        select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc())
+    ).all()
+    return [_build_order_read(session, order) for order in orders]
+
+
+def get_all_orders(session: Session) -> list[OrderRead]:
+    orders = session.exec(select(Order).order_by(Order.created_at.desc())).all()
+    return [_build_order_read(session, order) for order in orders]
+
+
+def update_order_status(
+    session: Session, order_id: int, status_update: OrderStatusUpdate
+) -> Optional[OrderRead]:
+    order = session.get(Order, order_id)
+    if not order:
+        return None
+
+    order.order_status = status_update.order_status
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return _build_order_read(session, order)
+
+
 def _get_review_by_id(session: Session, review_id: int) -> Optional[Review]:
     return session.get(Review, review_id)
 
