@@ -4,12 +4,16 @@ function ProductCatalog({
   searchTerm,
   onRefresh,
   onAddToCart,
+  onOpenReviews,
   onEditProduct,
   onRemoveProduct,
+  onToggleWishlist,
   getCartQuantityForProduct,
   canUseCart,
+  canUseWishlist,
   isAdmin,
   isLoggedIn,
+  wishlistProductIds = [],
 }) {
   return (
     <div className="catalog-panel">
@@ -40,6 +44,7 @@ function ProductCatalog({
             const cartQuantity = getCartQuantityForProduct(product.id)
             const isOutOfStock = product.stock === 0
             const isAtStockLimit = cartQuantity >= product.stock && product.stock > 0
+            const isWishlisted = wishlistProductIds.includes(product.id)
 
             return (
               <article className="product-card" key={product.id}>
@@ -62,6 +67,9 @@ function ProductCatalog({
                   <div className="product-meta">
                     <span>Stock: {product.stock}</span>
                     {cartQuantity > 0 && <span>In cart: {cartQuantity}</span>}
+                    <span>
+                      Rating: {product.review_count > 0 ? `${product.average_rating} / 5 (${product.review_count})` : 'No reviews yet'}
+                    </span>
                   </div>
 
                   <div className="card-actions">
@@ -79,9 +87,25 @@ function ProductCatalog({
                             ? 'Out of stock'
                             : isAtStockLimit
                               ? 'Max in cart'
-                              : 'Add to cart'}
+                          : 'Add to cart'}
                       </button>
                     )}
+                    {!isAdmin && canUseWishlist && (
+                      <button
+                        className="ghost-button"
+                        onClick={() => onToggleWishlist(product.id, isWishlisted)}
+                        type="button"
+                      >
+                        {isWishlisted ? 'Remove wishlist' : 'Save for later'}
+                      </button>
+                    )}
+                    <button
+                      className="ghost-button"
+                      onClick={() => onOpenReviews(product)}
+                      type="button"
+                    >
+                      Reviews
+                    </button>
                     {isAdmin && (
                       <>
                         <button

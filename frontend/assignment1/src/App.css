@@ -263,6 +263,66 @@
   gap: 10px;
 }
 
+.wishlist-list,
+.review-list,
+.coupon-list {
+  display: grid;
+  gap: 12px;
+}
+
+.wishlist-card,
+.review-card,
+.coupon-card {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(79, 41, 24, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.wishlist-actions,
+.review-actions,
+.coupon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.review-header,
+.coupon-card,
+.wishlist-card {
+  display: grid;
+  gap: 12px;
+}
+
+.review-summary,
+.coupon-hints {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.coupon-toggle {
+  align-items: start;
+}
+
+.coupon-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.coupon-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
 .account-row {
   display: flex;
   align-items: center;
