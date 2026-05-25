@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminDashboard from './components/AdminDashboard.jsx'
+import AdminOrderPanel from './components/AdminOrderPanel.jsx'
 import AccountPanel from './components/AccountPanel.jsx'
 import AuthPanel from './components/AuthPanel.jsx'
 import CartPanel from './components/CartPanel.jsx'
@@ -82,9 +83,11 @@ function App() {
   const [adminCarts, setAdminCarts] = useState([])
   const [adminUsers, setAdminUsers] = useState([])
   const [adminCoupons, setAdminCoupons] = useState([])
+  const [adminOrders, setAdminOrders] = useState([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [userLoading, setUserLoading] = useState(false)
   const [couponLoading, setCouponLoading] = useState(false)
+  const [adminOrderLoading, setAdminOrderLoading] = useState(false)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [wishlistLoading, setWishlistLoading] = useState(false)
   const [orderLoading, setOrderLoading] = useState(false)
@@ -219,6 +222,7 @@ function App() {
       if (user.role === 'admin' || user.role === 'super_admin') {
         await loadAdminDashboard(token)
         await loadAdminCoupons(token)
+        await loadAdminOrders(token)
       }
       if (user.role === 'super_admin') {
         await loadAdminUsers(token)
@@ -242,6 +246,7 @@ function App() {
       setAdminCarts([])
       setAdminUsers([])
       setAdminCoupons([])
+      setAdminOrders([])
     }
   }
 
@@ -383,6 +388,24 @@ function App() {
       setError(err.message)
     } finally {
       setCouponLoading(false)
+    }
+  }
+
+  async function loadAdminOrders(tokenOverride = authToken) {
+    const adminToken = typeof tokenOverride === 'string' ? tokenOverride : authToken
+    if (!adminToken) {
+      setAdminOrders([])
+      return
+    }
+
+    try {
+      setAdminOrderLoading(true)
+      const items = await request('/admin/orders', { authToken: adminToken })
+      setAdminOrders(items)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setAdminOrderLoading(false)
     }
   }
 
@@ -566,6 +589,7 @@ function App() {
     if (data.user.role === 'admin' || data.user.role === 'super_admin') {
       await loadAdminDashboard(data.access_token)
       await loadAdminCoupons(data.access_token)
+      await loadAdminOrders(data.access_token)
     }
     if (data.user.role === 'super_admin') {
       await loadAdminUsers(data.access_token)
@@ -663,6 +687,7 @@ function App() {
     setAdminCarts([])
     setAdminUsers([])
     setAdminCoupons([])
+    setAdminOrders([])
     setIsWishlistOpen(false)
     setIsReviewOpen(false)
     setActiveReviewProduct(null)
@@ -963,6 +988,9 @@ function App() {
       setCartCouponMessage('')
       await loadStore()
       await loadOrders()
+      if (isAdmin) {
+        await loadAdminOrders()
+      }
       setNotice(`Order #${order.id} placed.`)
       setCheckoutMessage(`Payment complete. Order #${order.id} was created.`)
     } catch (err) {
@@ -1095,6 +1123,20 @@ function App() {
       setNotice('Coupon deleted.')
       await loadAdminCoupons()
       await loadCoupons()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function changeOrderStatus(orderId, orderStatus) {
+    try {
+      setError('')
+      await request(`/admin/orders/${orderId}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ order_status: orderStatus }),
+      })
+      setNotice('Order status updated.')
+      await loadAdminOrders()
     } catch (err) {
       setError(err.message)
     }
@@ -1437,6 +1479,15 @@ function App() {
               >
                 Coupons
               </button>
+              <button
+                aria-selected={activeAdminTab === 'orders'}
+                className={`tab-button ${activeAdminTab === 'orders' ? 'active' : ''}`}
+                onClick={() => setActiveAdminTab('orders')}
+                role="tab"
+                type="button"
+              >
+                Orders
+              </button>
               {isSuperAdmin && (
                 <button
                   aria-selected={activeAdminTab === 'users'}
@@ -1481,6 +1532,15 @@ function App() {
                   onEditCoupon={startEditAdminCoupon}
                   onRefresh={() => loadAdminCoupons()}
                   onSubmit={submitAdminCoupon}
+                />
+              )}
+
+              {activeAdminTab === 'orders' && (
+                <AdminOrderPanel
+                  loading={adminOrderLoading}
+                  onRefresh={() => loadAdminOrders()}
+                  onStatusChange={changeOrderStatus}
+                  orders={adminOrders}
                 />
               )}
 

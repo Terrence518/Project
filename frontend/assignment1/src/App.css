@@ -412,6 +412,16 @@
   font-weight: 700;
 }
 
+.status-select {
+  min-width: 130px;
+  border: 1px solid rgba(79, 41, 24, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--heading);
+  padding: 10px 12px;
+  font: inherit;
+}
+
 .user-management {
   display: grid;
   gap: 18px;
