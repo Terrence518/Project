@@ -108,6 +108,8 @@ class ProductUpdate(SQLModel):
 class ProductRead(ProductBase):
     id: int
     created_at: datetime
+    review_count: int = 0
+    average_rating: float = 0.0
 
 
 # Cart item links user and product.
@@ -483,6 +485,355 @@ def get_admin_users(session: Session) -> list[AdminUserRead]:
     return admin_users
 
 
+def _normalize_code(code: str) -> str:
+    return code.strip().upper()
+
+
+def _is_coupon_active(coupon: Coupon) -> bool:
+    if not coupon.is_active:
+        return False
+    if coupon.expiry_date and coupon.expiry_date <= datetime.utcnow():
+        return False
+    return True
+
+
+def get_coupon_by_id(session: Session, coupon_id: int) -> Optional[Coupon]:
+    return session.get(Coupon, coupon_id)
+
+
+def get_coupon_by_code(session: Session, code: str) -> Optional[Coupon]:
+    statement = select(Coupon).where(Coupon.code == _normalize_code(code))
+    return session.exec(statement).first()
+
+
+def get_coupon_read(coupon: Coupon) -> CouponRead:
+    return CouponRead.model_validate(coupon)
+
+
+def get_coupons(session: Session, active_only: bool = False) -> list[CouponRead]:
+    statement = select(Coupon).order_by(Coupon.created_at.desc())
+    coupons = list(session.exec(statement).all())
+    if active_only:
+        coupons = [coupon for coupon in coupons if _is_coupon_active(coupon)]
+    return [get_coupon_read(coupon) for coupon in coupons]
+
+
+def create_coupon(
+    session: Session, coupon_create: CouponCreate, created_by: Optional[int] = None
+) -> Coupon:
+    code = _normalize_code(coupon_create.code)
+    if get_coupon_by_code(session, code):
+        raise ValueError("Coupon code is already registered.")
+
+    coupon = Coupon(
+        code=code,
+        discount_percent=coupon_create.discount_percent,
+        is_active=coupon_create.is_active,
+        expiry_date=coupon_create.expiry_date,
+        created_by=created_by,
+    )
+    session.add(coupon)
+    session.commit()
+    session.refresh(coupon)
+    return coupon
+
+
+def update_coupon(
+    session: Session, coupon_id: int, coupon_update: CouponUpdate
+) -> Optional[Coupon]:
+    coupon = get_coupon_by_id(session, coupon_id)
+    if not coupon:
+        return None
+
+    update_data = coupon_update.model_dump(exclude_unset=True)
+    if "code" in update_data:
+        update_data["code"] = _normalize_code(update_data["code"])
+        existing_coupon = get_coupon_by_code(session, update_data["code"])
+        if existing_coupon and existing_coupon.id != coupon_id:
+            raise ValueError("Coupon code is already registered.")
+
+    for key, value in update_data.items():
+        setattr(coupon, key, value)
+
+    coupon.updated_at = datetime.utcnow()
+    session.add(coupon)
+    session.commit()
+    session.refresh(coupon)
+    return coupon
+
+
+def delete_coupon(session: Session, coupon_id: int) -> bool:
+    coupon = get_coupon_by_id(session, coupon_id)
+    if not coupon:
+        return False
+
+    cart_coupons = session.exec(
+        select(CartCoupon).where(CartCoupon.coupon_id == coupon_id)
+    ).all()
+    for cart_coupon in cart_coupons:
+        session.delete(cart_coupon)
+
+    session.delete(coupon)
+    session.commit()
+    return True
+
+
+def get_cart_coupon(session: Session, user_id: int) -> Optional[CartCoupon]:
+    statement = select(CartCoupon).where(CartCoupon.user_id == user_id)
+    return session.exec(statement).first()
+
+
+def apply_coupon_to_cart(
+    session: Session, user_id: int, code: str
+) -> CartSummaryRead:
+    coupon = get_coupon_by_code(session, code)
+    if not coupon:
+        raise ValueError("Invalid coupon code.")
+    if not _is_coupon_active(coupon):
+        raise ValueError("Invalid coupon code.")
+
+    cart_coupon = get_cart_coupon(session, user_id)
+    if cart_coupon:
+        cart_coupon.coupon_id = coupon.id
+        session.add(cart_coupon)
+    else:
+        session.add(CartCoupon(user_id=user_id, coupon_id=coupon.id))
+
+    session.commit()
+    return get_cart_summary(session, user_id)
+
+
+def get_cart_summary(session: Session, user_id: int) -> CartSummaryRead:
+    cart_items = get_cart_items(session, user_id)
+    subtotal = round(sum(item.subtotal for item in cart_items), 2)
+    discount_amount = 0.0
+    coupon_read: Optional[CouponRead] = None
+
+    cart_coupon = get_cart_coupon(session, user_id)
+    if cart_coupon and cart_coupon.coupon_id:
+        coupon = get_coupon_by_id(session, cart_coupon.coupon_id)
+        if coupon and _is_coupon_active(coupon):
+            coupon_read = get_coupon_read(coupon)
+            discount_amount = round(
+                subtotal * coupon.discount_percent / 100, 2
+            )
+
+    total = round(max(subtotal - discount_amount, 0.0), 2)
+    return CartSummaryRead(
+        subtotal=subtotal,
+        discount_amount=discount_amount,
+        total=total,
+        coupon=coupon_read,
+    )
+
+
+def remove_coupon_from_cart(session: Session, user_id: int) -> bool:
+    cart_coupon = get_cart_coupon(session, user_id)
+    if not cart_coupon:
+        return False
+
+    session.delete(cart_coupon)
+    session.commit()
+    return True
+
+
+def _get_review_by_id(session: Session, review_id: int) -> Optional[Review]:
+    return session.get(Review, review_id)
+
+
+def _build_review_read(session: Session, review: Review) -> ReviewRead:
+    product = get_product_by_id(session, review.product_id)
+    user = get_user_by_id(session, review.user_id or 0)
+    if not product or not user:
+        raise ValueError("Review references missing data.")
+
+    return ReviewRead(
+        id=review.id,
+        user_id=user.id,
+        username=user.username,
+        product_id=product.id,
+        product_name=product.name,
+        rating=review.rating,
+        comment=review.comment,
+        created_at=review.created_at,
+        updated_at=review.updated_at,
+    )
+
+
+def get_product_reviews(session: Session, product_id: int) -> list[ReviewRead]:
+    reviews = session.exec(
+        select(Review)
+        .where(Review.product_id == product_id)
+        .order_by(Review.created_at.desc())
+    ).all()
+    return [_build_review_read(session, review) for review in reviews]
+
+
+def get_product_review_stats(session: Session, product_id: int) -> tuple[int, float]:
+    reviews = session.exec(select(Review).where(Review.product_id == product_id)).all()
+    if not reviews:
+        return 0, 0.0
+
+    average_rating = round(sum(review.rating for review in reviews) / len(reviews), 2)
+    return len(reviews), average_rating
+
+
+def build_product_read(session: Session, product: Product) -> ProductRead:
+    review_count, average_rating = get_product_review_stats(session, product.id)
+    return ProductRead(
+        id=product.id,
+        name=product.name,
+        description=product.description,
+        price=product.price,
+        image_url=product.image_url,
+        stock=product.stock,
+        created_at=product.created_at,
+        review_count=review_count,
+        average_rating=average_rating,
+    )
+
+
+def add_wishlist_item(session: Session, user_id: int, product_id: int) -> WishlistItemRead:
+    product = get_product_by_id(session, product_id)
+    if not product:
+        raise ValueError("Product not found.")
+
+    existing = session.exec(
+        select(WishlistItem).where(
+            WishlistItem.user_id == user_id,
+            WishlistItem.product_id == product_id,
+        )
+    ).first()
+    if existing:
+        return WishlistItemRead(
+            id=existing.id,
+            product_id=product.id,
+            product_name=product.name,
+            product_price=product.price,
+            product_image_url=product.image_url,
+            created_at=existing.created_at,
+        )
+
+    wishlist_item = WishlistItem(user_id=user_id, product_id=product_id)
+    session.add(wishlist_item)
+    session.commit()
+    session.refresh(wishlist_item)
+    return WishlistItemRead(
+        id=wishlist_item.id,
+        product_id=product.id,
+        product_name=product.name,
+        product_price=product.price,
+        product_image_url=product.image_url,
+        created_at=wishlist_item.created_at,
+    )
+
+
+def get_wishlist_items(session: Session, user_id: int) -> list[WishlistItemRead]:
+    wishlist_items = session.exec(
+        select(WishlistItem)
+        .where(WishlistItem.user_id == user_id)
+        .order_by(WishlistItem.created_at.desc())
+    ).all()
+    items: list[WishlistItemRead] = []
+    for wishlist_item in wishlist_items:
+        product = get_product_by_id(session, wishlist_item.product_id)
+        if not product:
+            continue
+        items.append(
+            WishlistItemRead(
+                id=wishlist_item.id,
+                product_id=product.id,
+                product_name=product.name,
+                product_price=product.price,
+                product_image_url=product.image_url,
+                created_at=wishlist_item.created_at,
+            )
+        )
+    return items
+
+
+def delete_wishlist_item(session: Session, user_id: int, product_id: int) -> bool:
+    wishlist_item = session.exec(
+        select(WishlistItem).where(
+            WishlistItem.user_id == user_id,
+            WishlistItem.product_id == product_id,
+        )
+    ).first()
+    if not wishlist_item:
+        return False
+
+    session.delete(wishlist_item)
+    session.commit()
+    return True
+
+
+def create_review(
+    session: Session, user_id: int, review_create: ReviewCreate
+) -> ReviewRead:
+    product = get_product_by_id(session, review_create.product_id)
+    user = get_user_by_id(session, user_id)
+    if not product or not user:
+        raise ValueError("Product or user not found.")
+
+    existing_review = session.exec(
+        select(Review).where(
+            Review.user_id == user_id,
+            Review.product_id == review_create.product_id,
+        )
+    ).first()
+    if existing_review:
+        raise ValueError("You already reviewed this product.")
+
+    review = Review.model_validate(review_create)
+    review.user_id = user_id
+    session.add(review)
+    session.commit()
+    session.refresh(review)
+    return _build_review_read(session, review)
+
+
+def update_review(
+    session: Session,
+    review_id: int,
+    review_update: ReviewUpdate,
+    current_user: User,
+) -> Optional[ReviewRead]:
+    review = _get_review_by_id(session, review_id)
+    if not review:
+        return None
+
+    can_manage = current_user.role in {"admin", "super_admin"} or review.user_id == current_user.id
+    if not can_manage:
+        raise PermissionError("You can only edit your own review.")
+
+    update_data = review_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(review, key, value)
+    review.updated_at = datetime.utcnow()
+    session.add(review)
+    session.commit()
+    session.refresh(review)
+    return _build_review_read(session, review)
+
+
+def delete_review(
+    session: Session,
+    review_id: int,
+    current_user: User,
+) -> bool:
+    review = _get_review_by_id(session, review_id)
+    if not review:
+        return False
+
+    can_manage = current_user.role in {"admin", "super_admin"} or review.user_id == current_user.id
+    if not can_manage:
+        raise PermissionError("You can only delete your own review.")
+
+    session.delete(review)
+    session.commit()
+    return True
+
+
 def update_user_role(
     session: Session, user_id: int, role_update: UserRoleUpdate
 ) -> Optional[User]:
@@ -507,6 +858,25 @@ def delete_user(session: Session, user_id: int) -> bool:
     cart_items = session.exec(select(CartItem).where(CartItem.user_id == user_id)).all()
     for item in cart_items:
         session.delete(item)
+
+    wishlist_items = session.exec(
+        select(WishlistItem).where(WishlistItem.user_id == user_id)
+    ).all()
+    for item in wishlist_items:
+        session.delete(item)
+
+    reviews = session.exec(select(Review).where(Review.user_id == user_id)).all()
+    for review in reviews:
+        session.delete(review)
+
+    cart_coupon = get_cart_coupon(session, user_id)
+    if cart_coupon:
+        session.delete(cart_coupon)
+
+    coupons = session.exec(select(Coupon).where(Coupon.created_by == user_id)).all()
+    for coupon in coupons:
+        coupon.created_by = None
+        session.add(coupon)
 
     session.delete(user)
     session.commit()
@@ -586,6 +956,16 @@ def delete_product(session: Session, product_id: int) -> bool:
     ).all()
     for item in cart_items:
         session.delete(item)
+
+    wishlist_items = session.exec(
+        select(WishlistItem).where(WishlistItem.product_id == product_id)
+    ).all()
+    for item in wishlist_items:
+        session.delete(item)
+
+    reviews = session.exec(select(Review).where(Review.product_id == product_id)).all()
+    for review in reviews:
+        session.delete(review)
 
     session.delete(product)
     session.commit()

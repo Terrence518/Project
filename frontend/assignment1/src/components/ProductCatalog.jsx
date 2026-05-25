@@ -2,52 +2,29 @@ function ProductCatalog({
   products,
   loading,
   searchTerm,
-  isSearchOpen,
-  searchInputRef,
-  onSearchChange,
-  onSearchToggle,
-  onSearchBlur,
   onRefresh,
   onAddToCart,
+  onOpenReviews,
   onEditProduct,
   onRemoveProduct,
+  onToggleWishlist,
   getCartQuantityForProduct,
   canUseCart,
+  canUseWishlist,
   isAdmin,
   isLoggedIn,
+  wishlistProductIds = [],
 }) {
   return (
     <div className="catalog-panel">
       <div className="section-heading">
         <div>
           <h2>Products</h2>
+          <p className="panel-note">
+            Browse the catalog here and use the top bar for search, cart, and account actions.
+          </p>
         </div>
         <div className="toolbar">
-          {/* Show search box when user opens it. */}
-          {(isSearchOpen || searchTerm.trim()) && (
-            <input
-              className="search-input"
-              onBlur={onSearchBlur}
-              onChange={onSearchChange}
-              placeholder="Search products"
-              ref={searchInputRef}
-              type="search"
-              value={searchTerm}
-            />
-          )}
-          <button
-            aria-label="Search products"
-            className="icon-button"
-            onClick={onSearchToggle}
-            type="button"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M10.5 4a6.5 6.5 0 1 0 4.02 11.61l4.43 4.43 1.41-1.41-4.43-4.43A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
           <button className="ghost-button" onClick={onRefresh} type="button">
             Refresh
           </button>
@@ -67,6 +44,7 @@ function ProductCatalog({
             const cartQuantity = getCartQuantityForProduct(product.id)
             const isOutOfStock = product.stock === 0
             const isAtStockLimit = cartQuantity >= product.stock && product.stock > 0
+            const isWishlisted = wishlistProductIds.includes(product.id)
 
             return (
               <article className="product-card" key={product.id}>
@@ -89,6 +67,9 @@ function ProductCatalog({
                   <div className="product-meta">
                     <span>Stock: {product.stock}</span>
                     {cartQuantity > 0 && <span>In cart: {cartQuantity}</span>}
+                    <span>
+                      Rating: {product.review_count > 0 ? `${product.average_rating} / 5 (${product.review_count})` : 'No reviews yet'}
+                    </span>
                   </div>
 
                   <div className="card-actions">
@@ -106,9 +87,25 @@ function ProductCatalog({
                             ? 'Out of stock'
                             : isAtStockLimit
                               ? 'Max in cart'
-                              : 'Add to cart'}
+                          : 'Add to cart'}
                       </button>
                     )}
+                    {!isAdmin && canUseWishlist && (
+                      <button
+                        className="ghost-button"
+                        onClick={() => onToggleWishlist(product.id, isWishlisted)}
+                        type="button"
+                      >
+                        {isWishlisted ? 'Remove wishlist' : 'Save for later'}
+                      </button>
+                    )}
+                    <button
+                      className="ghost-button"
+                      onClick={() => onOpenReviews(product)}
+                      type="button"
+                    >
+                      Reviews
+                    </button>
                     {isAdmin && (
                       <>
                         <button
