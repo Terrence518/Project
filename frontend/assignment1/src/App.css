@@ -360,6 +360,58 @@
   gap: 14px;
 }
 
+.order-history-panel {
+  margin-top: 18px;
+}
+
+.order-list {
+  display: grid;
+  gap: 14px;
+}
+
+.order-card {
+  padding: 16px;
+  border: 1px solid rgba(79, 41, 24, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.order-head,
+.order-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.order-head {
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.order-head h3 {
+  margin: 0;
+}
+
+.order-head p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.order-items {
+  display: grid;
+  gap: 10px;
+}
+
+.order-item {
+  align-items: center;
+  color: var(--muted);
+}
+
+.order-item span:first-child {
+  color: var(--heading);
+  font-weight: 700;
+}
+
 .user-management {
   display: grid;
   gap: 18px;
@@ -809,6 +861,8 @@
   .account-row,
   .admin-cart-header,
   .admin-cart-item,
+  .order-head,
+  .order-item,
   .product-header,
   .product-meta,
   .cart-footer,

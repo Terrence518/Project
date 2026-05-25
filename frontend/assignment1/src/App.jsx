@@ -6,6 +6,7 @@ import CartPanel from './components/CartPanel.jsx'
 import CheckoutPanel from './components/CheckoutPanel.jsx'
 import CouponManagementPanel from './components/CouponManagementPanel.jsx'
 import InventoryPanel from './components/InventoryPanel.jsx'
+import OrderHistoryPanel from './components/OrderHistoryPanel.jsx'
 import ProductCatalog from './components/ProductCatalog.jsx'
 import ReviewPanel from './components/ReviewPanel.jsx'
 import WishlistPanel from './components/WishlistPanel.jsx'
@@ -63,6 +64,7 @@ function App() {
     coupon: null,
   })
   const [wishlistItems, setWishlistItems] = useState([])
+  const [orders, setOrders] = useState([])
   const [reviews, setReviews] = useState([])
   const [, setCoupons] = useState([])
   const [productForm, setProductForm] = useState(emptyProductForm)
@@ -85,6 +87,7 @@ function App() {
   const [couponLoading, setCouponLoading] = useState(false)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [wishlistLoading, setWishlistLoading] = useState(false)
+  const [orderLoading, setOrderLoading] = useState(false)
   const [reviewLoading, setReviewLoading] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authNotice, setAuthNotice] = useState('')
@@ -222,6 +225,7 @@ function App() {
       }
       if (user.role === 'customer') {
         await loadWishlist(token, user)
+        await loadOrders(token, user)
       }
     } catch {
       setAuthToken('')
@@ -234,6 +238,7 @@ function App() {
         coupon: null,
       })
       setWishlistItems([])
+      setOrders([])
       setAdminCarts([])
       setAdminUsers([])
       setAdminCoupons([])
@@ -324,6 +329,25 @@ function App() {
       setError(err.message)
     } finally {
       setWishlistLoading(false)
+    }
+  }
+
+  async function loadOrders(tokenOverride = authToken, userOverride = currentUser) {
+    const orderToken = typeof tokenOverride === 'string' ? tokenOverride : authToken
+    const orderUser = userOverride ?? currentUser
+    if (!orderToken || orderUser?.role !== 'customer') {
+      setOrders([])
+      return
+    }
+
+    try {
+      setOrderLoading(true)
+      const items = await request('/orders', { authToken: orderToken })
+      setOrders(items)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setOrderLoading(false)
     }
   }
 
@@ -548,6 +572,7 @@ function App() {
     }
       if (data.user.role === 'customer') {
       await loadWishlist(data.access_token, data.user)
+      await loadOrders(data.access_token, data.user)
     }
   }
 
@@ -632,6 +657,7 @@ function App() {
       coupon: null,
     })
     setWishlistItems([])
+    setOrders([])
     setReviews([])
     setCoupons([])
     setAdminCarts([])
@@ -936,6 +962,7 @@ function App() {
       setCartCouponForm(emptyCartCouponForm)
       setCartCouponMessage('')
       await loadStore()
+      await loadOrders()
       setNotice(`Order #${order.id} placed.`)
       setCheckoutMessage(`Payment complete. Order #${order.id} was created.`)
     } catch (err) {
@@ -1228,7 +1255,16 @@ function App() {
               </button>
             </div>
             {currentUser ? (
-              <AccountPanel currentUser={currentUser} onLogout={logoutUser} />
+              <>
+                <AccountPanel currentUser={currentUser} onLogout={logoutUser} />
+                {canUseCart && (
+                  <OrderHistoryPanel
+                    loading={orderLoading}
+                    onRefresh={() => loadOrders()}
+                    orders={orders}
+                  />
+                )}
+              </>
             ) : (
               <AuthPanel
                 authForm={authForm}
