@@ -1,7 +1,6 @@
 function CartPanel({
   cartItems,
   totalItems,
-  cartTotal,
   cartSummary,
   couponForm,
   couponMessage,

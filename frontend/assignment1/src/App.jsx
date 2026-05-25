@@ -3,6 +3,7 @@ import AdminDashboard from './components/AdminDashboard.jsx'
 import AccountPanel from './components/AccountPanel.jsx'
 import AuthPanel from './components/AuthPanel.jsx'
 import CartPanel from './components/CartPanel.jsx'
+import CheckoutPanel from './components/CheckoutPanel.jsx'
 import CouponManagementPanel from './components/CouponManagementPanel.jsx'
 import InventoryPanel from './components/InventoryPanel.jsx'
 import ProductCatalog from './components/ProductCatalog.jsx'
@@ -43,6 +44,14 @@ const emptyAdminCouponForm = {
   is_active: true,
 }
 
+const emptyCheckoutForm = {
+  cardholder_name: '',
+  card_number: '',
+  expiry: '',
+  cvv: '',
+  delivery_address: '',
+}
+
 function App() {
   // Main data from the backend.
   const [products, setProducts] = useState([])
@@ -55,13 +64,15 @@ function App() {
   })
   const [wishlistItems, setWishlistItems] = useState([])
   const [reviews, setReviews] = useState([])
-  const [coupons, setCoupons] = useState([])
+  const [, setCoupons] = useState([])
   const [productForm, setProductForm] = useState(emptyProductForm)
   const [authForm, setAuthForm] = useState(emptyAuthForm)
   const [reviewForm, setReviewForm] = useState(emptyReviewForm)
   const [cartCouponForm, setCartCouponForm] = useState(emptyCartCouponForm)
   const [adminCouponForm, setAdminCouponForm] = useState(emptyAdminCouponForm)
+  const [checkoutForm, setCheckoutForm] = useState(emptyCheckoutForm)
   const [cartCouponMessage, setCartCouponMessage] = useState('')
+  const [checkoutMessage, setCheckoutMessage] = useState('')
   const [authMode, setAuthMode] = useState('login')
   // Save token so refresh keeps login.
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('authToken') ?? '')
@@ -72,6 +83,7 @@ function App() {
   const [adminLoading, setAdminLoading] = useState(false)
   const [userLoading, setUserLoading] = useState(false)
   const [couponLoading, setCouponLoading] = useState(false)
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [wishlistLoading, setWishlistLoading] = useState(false)
   const [reviewLoading, setReviewLoading] = useState(false)
   const [authError, setAuthError] = useState('')
@@ -417,6 +429,11 @@ function App() {
     setCartCouponForm((current) => ({ ...current, [name]: value }))
   }
 
+  function updateCheckoutForm(event) {
+    const { name, value } = event.target
+    setCheckoutForm((current) => ({ ...current, [name]: value }))
+  }
+
   function updateAdminCouponForm(event) {
     const { name, type, checked, value } = event.target
     setAdminCouponForm((current) => ({
@@ -518,7 +535,9 @@ function App() {
     setNotice('')
     setReviewForm(emptyReviewForm)
     setCartCouponForm(emptyCartCouponForm)
+    setCheckoutForm(emptyCheckoutForm)
     setCartCouponMessage('')
+    setCheckoutMessage('')
     await loadStore(data.access_token, data.user)
     if (data.user.role === 'admin' || data.user.role === 'super_admin') {
       await loadAdminDashboard(data.access_token)
@@ -631,6 +650,8 @@ function App() {
     setReviewForm(emptyReviewForm)
     setCartCouponForm(emptyCartCouponForm)
     setAdminCouponForm(emptyAdminCouponForm)
+    setCheckoutForm(emptyCheckoutForm)
+    setCheckoutMessage('')
   }
 
   function getCartQuantityForProduct(productId) {
@@ -847,7 +868,7 @@ function App() {
       })
       setCartSummary(summary)
       setCartCouponMessage(`Coupon ${summary.coupon?.code ?? code} applied.`)
-    } catch (err) {
+    } catch {
       setCartCouponMessage('Invalid coupon code.')
     }
   }
@@ -871,6 +892,57 @@ function App() {
     setCartCouponForm(emptyCartCouponForm)
     setCartSummary((current) => ({ ...current, discount_amount: 0, total: current.subtotal, coupon: null }))
     setCartCouponMessage('Coupon cleared.')
+  }
+
+  async function submitCheckout(event) {
+    event.preventDefault()
+    if (!currentUser || currentUser.role !== 'customer') {
+      setCheckoutMessage('Login as a customer to checkout.')
+      return
+    }
+
+    if (cartItems.length === 0) {
+      setCheckoutMessage('Your cart is empty.')
+      return
+    }
+
+    const payload = {
+      cardholder_name: checkoutForm.cardholder_name.trim(),
+      card_number: checkoutForm.card_number.trim(),
+      expiry: checkoutForm.expiry.trim(),
+      cvv: checkoutForm.cvv.trim(),
+      delivery_address: checkoutForm.delivery_address.trim(),
+    }
+
+    if (
+      !payload.cardholder_name ||
+      !payload.card_number ||
+      !payload.expiry ||
+      !payload.cvv ||
+      !payload.delivery_address
+    ) {
+      setCheckoutMessage('Please fill in all checkout fields.')
+      return
+    }
+
+    try {
+      setCheckoutLoading(true)
+      setCheckoutMessage('')
+      const order = await request('/checkout', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      setCheckoutForm(emptyCheckoutForm)
+      setCartCouponForm(emptyCartCouponForm)
+      setCartCouponMessage('')
+      await loadStore()
+      setNotice(`Order #${order.id} placed.`)
+      setCheckoutMessage(`Payment complete. Order #${order.id} was created.`)
+    } catch (err) {
+      setCheckoutMessage(err.message)
+    } finally {
+      setCheckoutLoading(false)
+    }
   }
 
   function startEditReview(review) {
@@ -1193,7 +1265,6 @@ function App() {
             </div>
             <CartPanel
               cartItems={cartItems}
-              cartTotal={cartTotal}
               cartSummary={cartSummary}
               couponForm={cartCouponForm}
               couponMessage={cartCouponMessage}
@@ -1204,6 +1275,16 @@ function App() {
               onRemoveCartItem={removeCartItem}
               totalItems={totalItems}
             />
+            {cartItems.length > 0 && (
+              <CheckoutPanel
+                cartSummary={cartSummary}
+                checkoutForm={checkoutForm}
+                loading={checkoutLoading}
+                message={checkoutMessage}
+                onCheckoutFormChange={updateCheckoutForm}
+                onSubmit={submitCheckout}
+              />
+            )}
           </aside>
         </div>
       )}
