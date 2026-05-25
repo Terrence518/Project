@@ -147,6 +147,176 @@ class AdminUserCartRead(SQLModel):
     total_price: float
 
 
+# Wishlist items let customers save products for later.
+class WishlistItemBase(SQLModel):
+    product_id: int = Field(foreign_key="product.id")
+
+
+class WishlistItem(WishlistItemBase, table=True):
+    __tablename__ = "wishlist_items"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class WishlistItemRead(SQLModel):
+    id: int
+    product_id: int
+    product_name: str
+    product_price: float
+    product_image_url: str
+    created_at: datetime
+
+
+# Reviews help customers rate products and leave feedback.
+class ReviewBase(SQLModel):
+    product_id: int = Field(foreign_key="product.id")
+    rating: int = Field(ge=1, le=5)
+    comment: str = Field(default="", max_length=500)
+
+
+class Review(ReviewBase, table=True):
+    __tablename__ = "reviews"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class ReviewCreate(ReviewBase):
+    pass
+
+
+class ReviewUpdate(SQLModel):
+    rating: Optional[int] = Field(default=None, ge=1, le=5)
+    comment: Optional[str] = Field(default=None, max_length=500)
+
+
+class ReviewRead(SQLModel):
+    id: int
+    user_id: int
+    username: str
+    product_id: int
+    product_name: str
+    rating: int
+    comment: str
+    created_at: datetime
+    updated_at: datetime
+
+
+# Coupons give admins a simple discount workflow.
+class CouponBase(SQLModel):
+    code: str = Field(max_length=40)
+    discount_percent: int = Field(ge=1, le=100)
+    is_active: bool = True
+    expiry_date: Optional[datetime] = None
+
+
+class Coupon(CouponBase, table=True):
+    __tablename__ = "coupons"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class CouponCreate(CouponBase):
+    pass
+
+
+class CouponUpdate(SQLModel):
+    code: Optional[str] = Field(default=None, max_length=40)
+    discount_percent: Optional[int] = Field(default=None, ge=1, le=100)
+    is_active: Optional[bool] = None
+    expiry_date: Optional[datetime] = None
+
+
+class CouponRead(CouponBase):
+    id: int
+    created_by: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+
+class CartCoupon(SQLModel, table=True):
+    __tablename__ = "cart_coupons"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id", unique=True)
+    coupon_id: Optional[int] = Field(default=None, foreign_key="coupons.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class CartSummaryRead(SQLModel):
+    subtotal: float
+    discount_amount: float
+    total: float
+    coupon: Optional[CouponRead] = None
+
+
+# Orders are created after a customer checks out.
+class OrderBase(SQLModel):
+    delivery_address: str = Field(max_length=500)
+    subtotal: float = Field(default=0, ge=0)
+    discount_amount: float = Field(default=0, ge=0)
+    total: float = Field(default=0, ge=0)
+    payment_status: str = Field(default="paid", max_length=30)
+    order_status: str = Field(default="paid", max_length=30)
+
+
+class Order(OrderBase, table=True):
+    __tablename__ = "orders"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class OrderItem(SQLModel, table=True):
+    __tablename__ = "order_items"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    order_id: Optional[int] = Field(default=None, foreign_key="orders.id")
+    product_id: Optional[int] = Field(default=None, foreign_key="product.id")
+    product_name: str = Field(max_length=120)
+    unit_price: float = Field(ge=0)
+    quantity: int = Field(ge=1)
+    subtotal: float = Field(ge=0)
+
+
+class CheckoutCreate(SQLModel):
+    # Card details are only checked, not saved.
+    cardholder_name: str = Field(min_length=2, max_length=120)
+    card_number: str = Field(min_length=12, max_length=19)
+    expiry: str = Field(min_length=4, max_length=7)
+    cvv: str = Field(min_length=3, max_length=4)
+    delivery_address: str = Field(min_length=5, max_length=500)
+
+
+class OrderItemRead(SQLModel):
+    id: int
+    product_id: Optional[int]
+    product_name: str
+    unit_price: float
+    quantity: int
+    subtotal: float
+
+
+class OrderRead(OrderBase):
+    id: int
+    user_id: int
+    username: str
+    items: list[OrderItemRead]
+    created_at: datetime
+
+
+class OrderStatusUpdate(SQLModel):
+    order_status: Literal["paid", "packed", "shipped", "cancelled"]
+
+
 # Sample products for first run.
 SAMPLE_PRODUCTS = [
     ProductCreate(
@@ -209,9 +379,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return password_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(
-    data: dict, expires_delta: Optional[timedelta] = None
-) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     # Put user id inside the token.
     to_encode = data.copy()
     expire = datetime.utcnow() + (
@@ -257,9 +425,7 @@ def create_user(session: Session, user_create: UserCreate) -> User:
     return user
 
 
-def authenticate_user(
-    session: Session, username: str, password: str
-) -> Optional[User]:
+def authenticate_user(session: Session, username: str, password: str) -> Optional[User]:
     user = get_user_by_username(session, username)
     if not user or not verify_password(password, user.hashed_password):
         return None
@@ -338,9 +504,7 @@ def delete_user(session: Session, user_id: int) -> bool:
     if not user:
         return False
 
-    cart_items = session.exec(
-        select(CartItem).where(CartItem.user_id == user_id)
-    ).all()
+    cart_items = session.exec(select(CartItem).where(CartItem.user_id == user_id)).all()
     for item in cart_items:
         session.delete(item)
 
@@ -457,9 +621,7 @@ def _build_cart_item_read(session: Session, cart_item: CartItem) -> CartItemRead
 
 
 def get_cart_items(session: Session, user_id: int) -> list[CartItemRead]:
-    cart_items = session.exec(
-        select(CartItem).where(CartItem.user_id == user_id)
-    ).all()
+    cart_items = session.exec(select(CartItem).where(CartItem.user_id == user_id)).all()
     return [_build_cart_item_read(session, item) for item in cart_items]
 
 
