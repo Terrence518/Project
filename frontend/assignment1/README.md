@@ -1,6 +1,6 @@
 # St Leonards' Tech Store
 
-St Leonards' Tech Store is a single-page e-commerce shopping cart web app. This project extends the Assignment 1 store into an Assignment 2 full-stack app with login, user roles, customer carts, and an admin dashboard.
+St Leonards' Tech Store is a single-page e-commerce shopping cart web app. This project extends the Assignment 1 store into an Assignment 2 full-stack app with login, user roles, customer carts, wishlist, reviews, coupons, checkout, and admin tools.
 
 ## Technical Stack
 
@@ -22,9 +22,16 @@ St Leonards' Tech Store is a single-page e-commerce shopping cart web app. This 
 - Customer-only shopping cart
 - User-specific cart data
 - Add, update, and remove cart items
+- Customer wishlist
+- Product reviews and ratings
+- Coupon discounts
+- Mock checkout and payment
+- Customer order history
 - Stock validation so users cannot add more than the available stock
 - Admin-only product creation, editing, and deletion
 - Admin dashboard for viewing all customer carts
+- Admin coupon management
+- Admin order management
 - Super admin user management for changing roles and deleting users
 - Responsive single-page layout
 
@@ -39,6 +46,11 @@ Customers can:
 - Add products to their own cart
 - Update cart quantities
 - Remove cart items
+- Save products to wishlist
+- Add product reviews
+- Apply coupons
+- Checkout with mock payment
+- View order history
 - Log out
 
 Customers cannot:
@@ -56,6 +68,9 @@ Admins can:
 - View all products
 - Create, edit, and delete products
 - View all customer carts in the admin dashboard
+- Manage coupons
+- View customer orders
+- Update order status
 
 Admins do not use the customer shopping cart interface.
 
@@ -110,13 +125,43 @@ Products:
 Customer cart:
 
 - `GET /cart`
+- `GET /cart/summary`
 - `POST /cart/items`
 - `PUT /cart/items/{cart_item_id}`
 - `DELETE /cart/items/{cart_item_id}`
+- `POST /cart/apply-coupon`
+
+Wishlist:
+
+- `GET /wishlist`
+- `POST /wishlist/{product_id}`
+- `DELETE /wishlist/{product_id}`
+
+Reviews:
+
+- `GET /products/{product_id}/reviews`
+- `POST /products/{product_id}/reviews`
+- `PUT /reviews/{review_id}`
+- `DELETE /reviews/{review_id}`
+
+Coupons:
+
+- `GET /coupons`
 
 Admin and super admin:
 
 - `GET /admin/carts`
+- `GET /admin/coupons`
+- `POST /admin/coupons`
+- `PUT /admin/coupons/{coupon_id}`
+- `DELETE /admin/coupons/{coupon_id}`
+- `GET /admin/orders`
+- `PUT /admin/orders/{order_id}/status`
+
+Checkout and orders:
+
+- `POST /checkout`
+- `GET /orders`
 
 Super admin only:
 
@@ -195,6 +240,18 @@ http://127.0.0.1:5173
 5. Log out and log back in.
 6. The cart should still belong to that user.
 
+## Testing Checkout
+
+1. Log in as a customer.
+2. Add products to the cart.
+3. Open the cart.
+4. Optional: apply a valid coupon.
+5. Fill in the checkout form.
+6. Click `Pay and place order`.
+7. The cart should clear and the order should appear in order history.
+
+This is a mock payment flow for the assignment. Card details are checked by simple validation but are not saved in the database.
+
 ## Making A User An Admin
 
 New registered users are customers by default. To test the admin dashboard, update one user in MySQL:
@@ -258,6 +315,7 @@ Person 1:
 - Added register, login, and current-user API routes
 - Connected frontend login and register state
 - Added basic customer/admin role rendering
+- Added wishlist, reviews, coupons, and related UI updates
 
 Person 2:
 
@@ -267,6 +325,13 @@ Person 2:
 - Connected role update and user delete actions
 - Added super admin role rules
 - Improved user management styling
+- Added order and checkout database models
+- Added checkout backend helper functions and API routes
+- Added customer checkout panel
+- Added customer order history
+- Added admin order management panel
+- Fixed product deletion when old order history exists
+- Added coupon expiry date validation
 - Updated README documentation
 
 ## Notes
@@ -278,3 +343,5 @@ Person 2:
 - User management is only shown to the super admin.
 - Normal admins can manage products and view customer carts, but cannot manage user accounts.
 - Product images use direct image URLs, for example links that end in `.jpg`, `.jpeg`, `.png`, or `.webp`.
+- Checkout uses mock payment only. It does not process real card payments.
+- Old order history is kept even if an admin later deletes a product.

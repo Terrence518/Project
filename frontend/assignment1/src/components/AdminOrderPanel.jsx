@@ -17,6 +17,7 @@ function AdminOrderPanel({ orders, loading, onRefresh, onStatusChange }) {
         <p className="empty-state">No orders found.</p>
       ) : (
         <div className="order-list">
+          {/* Admin can view every customer's order here. */}
           {orders.map((order) => (
             <article className="order-card" key={order.id}>
               <div className="order-head">
@@ -26,6 +27,7 @@ function AdminOrderPanel({ orders, loading, onRefresh, onStatusChange }) {
                     {order.username} - {new Date(order.created_at).toLocaleString()}
                   </p>
                 </div>
+                {/* Admin updates delivery progress with this status. */}
                 <select
                   aria-label={`Change status for order ${order.id}`}
                   className="status-select"

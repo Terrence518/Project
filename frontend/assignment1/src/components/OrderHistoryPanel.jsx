@@ -17,6 +17,7 @@ function OrderHistoryPanel({ orders, loading, onRefresh }) {
         <p className="empty-state">No orders yet.</p>
       ) : (
         <div className="order-list">
+          {/* Shows previous orders for the logged-in customer. */}
           {orders.map((order) => (
             <article className="order-card" key={order.id}>
               <div className="order-head">
@@ -28,6 +29,7 @@ function OrderHistoryPanel({ orders, loading, onRefresh }) {
               </div>
 
               <div className="order-items">
+                {/* Each order keeps a copy of product name and price. */}
                 {order.items.map((item) => (
                   <div className="order-item" key={item.id}>
                     <span>{item.product_name}</span>

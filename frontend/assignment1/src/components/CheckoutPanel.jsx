@@ -15,11 +15,13 @@ function CheckoutPanel({
         </div>
       </div>
 
+      {/* Shows what the customer will pay after coupon discount. */}
       <div className="checkout-total">
         <span>Total to pay</span>
         <strong>${Number(cartSummary.total).toFixed(2)}</strong>
       </div>
 
+      {/* This is only a mock payment form for the assignment. */}
       <form className="product-form" onSubmit={onSubmit}>
         <label>
           Cardholder name
