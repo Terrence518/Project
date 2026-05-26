@@ -1093,6 +1093,14 @@ def delete_product(session: Session, product_id: int) -> bool:
     for review in reviews:
         session.delete(review)
 
+    order_items = session.exec(
+        select(OrderItem).where(OrderItem.product_id == product_id)
+    ).all()
+    for item in order_items:
+        # Keep old order history but remove the deleted product link.
+        item.product_id = None
+        session.add(item)
+
     session.delete(product)
     session.commit()
     return True
