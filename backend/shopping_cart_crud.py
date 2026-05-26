@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Generator, Literal, Optional
 
@@ -497,6 +497,20 @@ def _is_coupon_active(coupon: Coupon) -> bool:
     return True
 
 
+def _validate_coupon_expiry(expiry_date: Optional[datetime]) -> Optional[datetime]:
+    # Coupon expiry should be now or in the future.
+    if not expiry_date:
+        return None
+
+    if expiry_date.tzinfo:
+        expiry_date = expiry_date.astimezone(timezone.utc).replace(tzinfo=None)
+
+    if expiry_date < datetime.utcnow():
+        raise ValueError("Coupon expiry date cannot be in the past.")
+
+    return expiry_date
+
+
 def get_coupon_by_id(session: Session, coupon_id: int) -> Optional[Coupon]:
     return session.get(Coupon, coupon_id)
 
@@ -522,6 +536,7 @@ def create_coupon(
     session: Session, coupon_create: CouponCreate, created_by: Optional[int] = None
 ) -> Coupon:
     code = _normalize_code(coupon_create.code)
+    expiry_date = _validate_coupon_expiry(coupon_create.expiry_date)
     if get_coupon_by_code(session, code):
         raise ValueError("Coupon code is already registered.")
 
@@ -529,7 +544,7 @@ def create_coupon(
         code=code,
         discount_percent=coupon_create.discount_percent,
         is_active=coupon_create.is_active,
-        expiry_date=coupon_create.expiry_date,
+        expiry_date=expiry_date,
         created_by=created_by,
     )
     session.add(coupon)
@@ -551,6 +566,9 @@ def update_coupon(
         existing_coupon = get_coupon_by_code(session, update_data["code"])
         if existing_coupon and existing_coupon.id != coupon_id:
             raise ValueError("Coupon code is already registered.")
+
+    if "expiry_date" in update_data:
+        update_data["expiry_date"] = _validate_coupon_expiry(update_data["expiry_date"])
 
     for key, value in update_data.items():
         setattr(coupon, key, value)
