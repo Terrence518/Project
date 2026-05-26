@@ -316,6 +316,7 @@ Person 1:
 - Connected frontend login and register state
 - Added basic customer/admin role rendering
 - Added wishlist, reviews, coupons, and related UI updates
+- Updated README documentation
 
 Person 2:
 
