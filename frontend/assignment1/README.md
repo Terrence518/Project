@@ -306,7 +306,7 @@ After running the SQL, log out and log in again. The user management panel shoul
 
 ## Workload Allocation
 
-Person 1:
+Chanyoung Lee:
 
 - Added backend dependencies
 - Added user database model
@@ -318,7 +318,7 @@ Person 1:
 - Added wishlist, reviews, coupons, and related UI updates
 - Updated README documentation
 
-Person 2:
+Haoxuan Huang:
 
 - Added admin user management schemas and backend helpers
 - Added protected super admin user management API routes
