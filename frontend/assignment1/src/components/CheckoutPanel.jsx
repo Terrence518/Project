@@ -26,7 +26,7 @@ function CheckoutPanel({
           <input
             name="cardholder_name"
             onChange={onCheckoutFormChange}
-            placeholder="Terrence Huang"
+            placeholder="Your name as it appears on the card"
             value={checkoutForm.cardholder_name}
           />
         </label>
@@ -38,7 +38,7 @@ function CheckoutPanel({
             maxLength="19"
             name="card_number"
             onChange={onCheckoutFormChange}
-            placeholder="4111111111111111"
+            placeholder="1234 5678 9012 3456"
             value={checkoutForm.card_number}
           />
         </label>
@@ -49,7 +49,7 @@ function CheckoutPanel({
             <input
               name="expiry"
               onChange={onCheckoutFormChange}
-              placeholder="12/28"
+              placeholder="MM/YY"
               value={checkoutForm.expiry}
             />
           </label>
