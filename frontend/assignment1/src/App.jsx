@@ -54,6 +54,40 @@ const emptyCheckoutForm = {
   delivery_address: '',
 }
 
+const fieldLabels = {
+  cardholder_name: 'Cardholder name',
+  card_number: 'Card number',
+  delivery_address: 'Delivery address',
+  discount_percent: 'Discount percent',
+  expiry_date: 'Expiry date',
+  image_url: 'Image URL',
+  product_id: 'Product',
+}
+
+function formatFieldName(fieldName) {
+  return fieldLabels[fieldName] ?? fieldName.replaceAll('_', ' ')
+}
+
+function formatApiError(data, fallbackMessage) {
+  const detail = data?.detail
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        const fieldName = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : ''
+        const prefix = fieldName ? `${formatFieldName(String(fieldName))}: ` : ''
+        return `${prefix}${item.msg ?? fallbackMessage}`
+      })
+      .join(' ')
+  }
+
+  if (typeof detail === 'string') {
+    return detail
+  }
+
+  return fallbackMessage
+}
+
 function App() {
   // Main data from the backend.
   const [products, setProducts] = useState([])
@@ -198,7 +232,7 @@ function App() {
 
       try {
         const data = await response.json()
-        message = data.detail ?? message
+        message = formatApiError(data, message)
       } catch {
         message = response.statusText || message
       }
