@@ -40,7 +40,7 @@ function AuthPanel({
           <input
             name="username"
             onChange={onAuthFormChange}
-            placeholder="terrence"
+            placeholder="Enter your username"
             value={authForm.username}
           />
         </label>
@@ -51,7 +51,7 @@ function AuthPanel({
             <input
               name="email"
               onChange={onAuthFormChange}
-              placeholder="terrence@example.com"
+              placeholder="Enter your email"
               type="email"
               value={authForm.email}
             />

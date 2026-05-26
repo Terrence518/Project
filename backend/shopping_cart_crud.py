@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Generator, Literal, Optional
 
@@ -259,6 +259,66 @@ class CartSummaryRead(SQLModel):
     coupon: Optional[CouponRead] = None
 
 
+# Orders are created after a customer checks out.
+class OrderBase(SQLModel):
+    delivery_address: str = Field(max_length=500)
+    subtotal: float = Field(default=0, ge=0)
+    discount_amount: float = Field(default=0, ge=0)
+    total: float = Field(default=0, ge=0)
+    payment_status: str = Field(default="paid", max_length=30)
+    order_status: str = Field(default="paid", max_length=30)
+
+
+class Order(OrderBase, table=True):
+    __tablename__ = "orders"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class OrderItem(SQLModel, table=True):
+    __tablename__ = "order_items"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    order_id: Optional[int] = Field(default=None, foreign_key="orders.id")
+    product_id: Optional[int] = Field(default=None, foreign_key="product.id")
+    product_name: str = Field(max_length=120)
+    unit_price: float = Field(ge=0)
+    quantity: int = Field(ge=1)
+    subtotal: float = Field(ge=0)
+
+
+class CheckoutCreate(SQLModel):
+    # Card details are only checked, not saved.
+    cardholder_name: str = Field(min_length=2, max_length=120)
+    card_number: str = Field(min_length=12, max_length=19)
+    expiry: str = Field(min_length=4, max_length=7)
+    cvv: str = Field(min_length=3, max_length=4)
+    delivery_address: str = Field(min_length=5, max_length=500)
+
+
+class OrderItemRead(SQLModel):
+    id: int
+    product_id: Optional[int]
+    product_name: str
+    unit_price: float
+    quantity: int
+    subtotal: float
+
+
+class OrderRead(OrderBase):
+    id: int
+    user_id: int
+    username: str
+    items: list[OrderItemRead]
+    created_at: datetime
+
+
+class OrderStatusUpdate(SQLModel):
+    order_status: Literal["paid", "packed", "shipped", "cancelled"]
+
+
 # Sample products for first run.
 SAMPLE_PRODUCTS = [
     ProductCreate(
@@ -321,9 +381,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return password_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(
-    data: dict, expires_delta: Optional[timedelta] = None
-) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     # Put user id inside the token.
     to_encode = data.copy()
     expire = datetime.utcnow() + (
@@ -369,9 +427,7 @@ def create_user(session: Session, user_create: UserCreate) -> User:
     return user
 
 
-def authenticate_user(
-    session: Session, username: str, password: str
-) -> Optional[User]:
+def authenticate_user(session: Session, username: str, password: str) -> Optional[User]:
     user = get_user_by_username(session, username)
     if not user or not verify_password(password, user.hashed_password):
         return None
@@ -441,6 +497,20 @@ def _is_coupon_active(coupon: Coupon) -> bool:
     return True
 
 
+def _validate_coupon_expiry(expiry_date: Optional[datetime]) -> Optional[datetime]:
+    # Coupon expiry should be now or in the future.
+    if not expiry_date:
+        return None
+
+    if expiry_date.tzinfo:
+        expiry_date = expiry_date.astimezone(timezone.utc).replace(tzinfo=None)
+
+    if expiry_date < datetime.utcnow():
+        raise ValueError("Coupon expiry date cannot be in the past.")
+
+    return expiry_date
+
+
 def get_coupon_by_id(session: Session, coupon_id: int) -> Optional[Coupon]:
     return session.get(Coupon, coupon_id)
 
@@ -466,6 +536,7 @@ def create_coupon(
     session: Session, coupon_create: CouponCreate, created_by: Optional[int] = None
 ) -> Coupon:
     code = _normalize_code(coupon_create.code)
+    expiry_date = _validate_coupon_expiry(coupon_create.expiry_date)
     if get_coupon_by_code(session, code):
         raise ValueError("Coupon code is already registered.")
 
@@ -473,7 +544,7 @@ def create_coupon(
         code=code,
         discount_percent=coupon_create.discount_percent,
         is_active=coupon_create.is_active,
-        expiry_date=coupon_create.expiry_date,
+        expiry_date=expiry_date,
         created_by=created_by,
     )
     session.add(coupon)
@@ -495,6 +566,9 @@ def update_coupon(
         existing_coupon = get_coupon_by_code(session, update_data["code"])
         if existing_coupon and existing_coupon.id != coupon_id:
             raise ValueError("Coupon code is already registered.")
+
+    if "expiry_date" in update_data:
+        update_data["expiry_date"] = _validate_coupon_expiry(update_data["expiry_date"])
 
     for key, value in update_data.items():
         setattr(coupon, key, value)
@@ -579,6 +653,132 @@ def remove_coupon_from_cart(session: Session, user_id: int) -> bool:
     session.delete(cart_coupon)
     session.commit()
     return True
+
+
+def _validate_mock_payment(checkout: CheckoutCreate) -> None:
+    # Simple checks for mock payment only.
+    card_number = checkout.card_number.replace(" ", "")
+    if not card_number.isdigit():
+        raise ValueError("Card number must contain numbers only.")
+
+    cvv = checkout.cvv.strip()
+    if not cvv.isdigit():
+        raise ValueError("CVV must contain numbers only.")
+
+
+def _build_order_read(session: Session, order: Order) -> OrderRead:
+    user = get_user_by_id(session, order.user_id or 0)
+    if not user:
+        raise ValueError("Order references missing user.")
+
+    order_items = session.exec(
+        select(OrderItem).where(OrderItem.order_id == order.id)
+    ).all()
+
+    return OrderRead(
+        id=order.id,
+        user_id=user.id,
+        username=user.username,
+        delivery_address=order.delivery_address,
+        subtotal=order.subtotal,
+        discount_amount=order.discount_amount,
+        total=order.total,
+        payment_status=order.payment_status,
+        order_status=order.order_status,
+        created_at=order.created_at,
+        items=[
+            OrderItemRead(
+                id=item.id,
+                product_id=item.product_id,
+                product_name=item.product_name,
+                unit_price=item.unit_price,
+                quantity=item.quantity,
+                subtotal=item.subtotal,
+            )
+            for item in order_items
+        ],
+    )
+
+
+def create_checkout_order(
+    session: Session, user_id: int, checkout: CheckoutCreate
+) -> OrderRead:
+    # Turn the cart into an order after mock payment.
+    _validate_mock_payment(checkout)
+    cart_items = session.exec(
+        select(CartItem).where(CartItem.user_id == user_id)
+    ).all()
+    if not cart_items:
+        raise ValueError("Your cart is empty.")
+
+    summary = get_cart_summary(session, user_id)
+    order = Order(
+        user_id=user_id,
+        delivery_address=checkout.delivery_address.strip(),
+        subtotal=summary.subtotal,
+        discount_amount=summary.discount_amount,
+        total=summary.total,
+        payment_status="paid",
+        order_status="paid",
+    )
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+
+    for cart_item in cart_items:
+        product = get_product_by_id(session, cart_item.product_id)
+        if not product:
+            raise ValueError("Product not found for cart item.")
+        if cart_item.quantity > product.stock:
+            raise ValueError(f"Only {product.stock} item(s) are available for {product.name}.")
+
+        product.stock -= cart_item.quantity
+        session.add(product)
+        session.add(
+            OrderItem(
+                order_id=order.id,
+                product_id=product.id,
+                product_name=product.name,
+                unit_price=product.price,
+                quantity=cart_item.quantity,
+                subtotal=round(product.price * cart_item.quantity, 2),
+            )
+        )
+        session.delete(cart_item)
+
+    cart_coupon = get_cart_coupon(session, user_id)
+    if cart_coupon:
+        session.delete(cart_coupon)
+
+    session.commit()
+    session.refresh(order)
+    return _build_order_read(session, order)
+
+
+def get_orders_for_user(session: Session, user_id: int) -> list[OrderRead]:
+    orders = session.exec(
+        select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc())
+    ).all()
+    return [_build_order_read(session, order) for order in orders]
+
+
+def get_all_orders(session: Session) -> list[OrderRead]:
+    orders = session.exec(select(Order).order_by(Order.created_at.desc())).all()
+    return [_build_order_read(session, order) for order in orders]
+
+
+def update_order_status(
+    session: Session, order_id: int, status_update: OrderStatusUpdate
+) -> Optional[OrderRead]:
+    order = session.get(Order, order_id)
+    if not order:
+        return None
+
+    order.order_status = status_update.order_status
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return _build_order_read(session, order)
 
 
 def _get_review_by_id(session: Session, review_id: int) -> Optional[Review]:
@@ -799,9 +999,7 @@ def delete_user(session: Session, user_id: int) -> bool:
     if not user:
         return False
 
-    cart_items = session.exec(
-        select(CartItem).where(CartItem.user_id == user_id)
-    ).all()
+    cart_items = session.exec(select(CartItem).where(CartItem.user_id == user_id)).all()
     for item in cart_items:
         session.delete(item)
 
@@ -913,6 +1111,14 @@ def delete_product(session: Session, product_id: int) -> bool:
     for review in reviews:
         session.delete(review)
 
+    order_items = session.exec(
+        select(OrderItem).where(OrderItem.product_id == product_id)
+    ).all()
+    for item in order_items:
+        # Keep old order history but remove the deleted product link.
+        item.product_id = None
+        session.add(item)
+
     session.delete(product)
     session.commit()
     return True
@@ -947,9 +1153,7 @@ def _build_cart_item_read(session: Session, cart_item: CartItem) -> CartItemRead
 
 
 def get_cart_items(session: Session, user_id: int) -> list[CartItemRead]:
-    cart_items = session.exec(
-        select(CartItem).where(CartItem.user_id == user_id)
-    ).all()
+    cart_items = session.exec(select(CartItem).where(CartItem.user_id == user_id)).all()
     return [_build_cart_item_read(session, item) for item in cart_items]
 
 

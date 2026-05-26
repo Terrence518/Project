@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminDashboard from './components/AdminDashboard.jsx'
+import AdminOrderPanel from './components/AdminOrderPanel.jsx'
 import AccountPanel from './components/AccountPanel.jsx'
 import AuthPanel from './components/AuthPanel.jsx'
 import CartPanel from './components/CartPanel.jsx'
+import CheckoutPanel from './components/CheckoutPanel.jsx'
 import CouponManagementPanel from './components/CouponManagementPanel.jsx'
 import InventoryPanel from './components/InventoryPanel.jsx'
+import OrderHistoryPanel from './components/OrderHistoryPanel.jsx'
 import ProductCatalog from './components/ProductCatalog.jsx'
 import ReviewPanel from './components/ReviewPanel.jsx'
 import WishlistPanel from './components/WishlistPanel.jsx'
@@ -43,6 +46,14 @@ const emptyAdminCouponForm = {
   is_active: true,
 }
 
+const emptyCheckoutForm = {
+  cardholder_name: '',
+  card_number: '',
+  expiry: '',
+  cvv: '',
+  delivery_address: '',
+}
+
 function App() {
   // Main data from the backend.
   const [products, setProducts] = useState([])
@@ -54,14 +65,17 @@ function App() {
     coupon: null,
   })
   const [wishlistItems, setWishlistItems] = useState([])
+  const [orders, setOrders] = useState([])
   const [reviews, setReviews] = useState([])
-  const [coupons, setCoupons] = useState([])
+  const [, setCoupons] = useState([])
   const [productForm, setProductForm] = useState(emptyProductForm)
   const [authForm, setAuthForm] = useState(emptyAuthForm)
   const [reviewForm, setReviewForm] = useState(emptyReviewForm)
   const [cartCouponForm, setCartCouponForm] = useState(emptyCartCouponForm)
   const [adminCouponForm, setAdminCouponForm] = useState(emptyAdminCouponForm)
+  const [checkoutForm, setCheckoutForm] = useState(emptyCheckoutForm)
   const [cartCouponMessage, setCartCouponMessage] = useState('')
+  const [checkoutMessage, setCheckoutMessage] = useState('')
   const [authMode, setAuthMode] = useState('login')
   // Save token so refresh keeps login.
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('authToken') ?? '')
@@ -69,10 +83,14 @@ function App() {
   const [adminCarts, setAdminCarts] = useState([])
   const [adminUsers, setAdminUsers] = useState([])
   const [adminCoupons, setAdminCoupons] = useState([])
+  const [adminOrders, setAdminOrders] = useState([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [userLoading, setUserLoading] = useState(false)
   const [couponLoading, setCouponLoading] = useState(false)
+  const [adminOrderLoading, setAdminOrderLoading] = useState(false)
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [wishlistLoading, setWishlistLoading] = useState(false)
+  const [orderLoading, setOrderLoading] = useState(false)
   const [reviewLoading, setReviewLoading] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authNotice, setAuthNotice] = useState('')
@@ -204,12 +222,14 @@ function App() {
       if (user.role === 'admin' || user.role === 'super_admin') {
         await loadAdminDashboard(token)
         await loadAdminCoupons(token)
+        await loadAdminOrders(token)
       }
       if (user.role === 'super_admin') {
         await loadAdminUsers(token)
       }
       if (user.role === 'customer') {
         await loadWishlist(token, user)
+        await loadOrders(token, user)
       }
     } catch {
       setAuthToken('')
@@ -222,9 +242,11 @@ function App() {
         coupon: null,
       })
       setWishlistItems([])
+      setOrders([])
       setAdminCarts([])
       setAdminUsers([])
       setAdminCoupons([])
+      setAdminOrders([])
     }
   }
 
@@ -315,6 +337,25 @@ function App() {
     }
   }
 
+  async function loadOrders(tokenOverride = authToken, userOverride = currentUser) {
+    const orderToken = typeof tokenOverride === 'string' ? tokenOverride : authToken
+    const orderUser = userOverride ?? currentUser
+    if (!orderToken || orderUser?.role !== 'customer') {
+      setOrders([])
+      return
+    }
+
+    try {
+      setOrderLoading(true)
+      const items = await request('/orders', { authToken: orderToken })
+      setOrders(items)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setOrderLoading(false)
+    }
+  }
+
   async function loadReviews(productId) {
     if (!productId) {
       setReviews([])
@@ -347,6 +388,24 @@ function App() {
       setError(err.message)
     } finally {
       setCouponLoading(false)
+    }
+  }
+
+  async function loadAdminOrders(tokenOverride = authToken) {
+    const adminToken = typeof tokenOverride === 'string' ? tokenOverride : authToken
+    if (!adminToken) {
+      setAdminOrders([])
+      return
+    }
+
+    try {
+      setAdminOrderLoading(true)
+      const items = await request('/admin/orders', { authToken: adminToken })
+      setAdminOrders(items)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setAdminOrderLoading(false)
     }
   }
 
@@ -415,6 +474,11 @@ function App() {
   function updateCartCouponForm(event) {
     const { name, value } = event.target
     setCartCouponForm((current) => ({ ...current, [name]: value }))
+  }
+
+  function updateCheckoutForm(event) {
+    const { name, value } = event.target
+    setCheckoutForm((current) => ({ ...current, [name]: value }))
   }
 
   function updateAdminCouponForm(event) {
@@ -518,17 +582,21 @@ function App() {
     setNotice('')
     setReviewForm(emptyReviewForm)
     setCartCouponForm(emptyCartCouponForm)
+    setCheckoutForm(emptyCheckoutForm)
     setCartCouponMessage('')
+    setCheckoutMessage('')
     await loadStore(data.access_token, data.user)
     if (data.user.role === 'admin' || data.user.role === 'super_admin') {
       await loadAdminDashboard(data.access_token)
       await loadAdminCoupons(data.access_token)
+      await loadAdminOrders(data.access_token)
     }
     if (data.user.role === 'super_admin') {
       await loadAdminUsers(data.access_token)
     }
       if (data.user.role === 'customer') {
       await loadWishlist(data.access_token, data.user)
+      await loadOrders(data.access_token, data.user)
     }
   }
 
@@ -613,11 +681,13 @@ function App() {
       coupon: null,
     })
     setWishlistItems([])
+    setOrders([])
     setReviews([])
     setCoupons([])
     setAdminCarts([])
     setAdminUsers([])
     setAdminCoupons([])
+    setAdminOrders([])
     setIsWishlistOpen(false)
     setIsReviewOpen(false)
     setActiveReviewProduct(null)
@@ -631,6 +701,8 @@ function App() {
     setReviewForm(emptyReviewForm)
     setCartCouponForm(emptyCartCouponForm)
     setAdminCouponForm(emptyAdminCouponForm)
+    setCheckoutForm(emptyCheckoutForm)
+    setCheckoutMessage('')
   }
 
   function getCartQuantityForProduct(productId) {
@@ -847,7 +919,7 @@ function App() {
       })
       setCartSummary(summary)
       setCartCouponMessage(`Coupon ${summary.coupon?.code ?? code} applied.`)
-    } catch (err) {
+    } catch {
       setCartCouponMessage('Invalid coupon code.')
     }
   }
@@ -871,6 +943,61 @@ function App() {
     setCartCouponForm(emptyCartCouponForm)
     setCartSummary((current) => ({ ...current, discount_amount: 0, total: current.subtotal, coupon: null }))
     setCartCouponMessage('Coupon cleared.')
+  }
+
+  async function submitCheckout(event) {
+    event.preventDefault()
+    if (!currentUser || currentUser.role !== 'customer') {
+      setCheckoutMessage('Login as a customer to checkout.')
+      return
+    }
+
+    if (cartItems.length === 0) {
+      setCheckoutMessage('Your cart is empty.')
+      return
+    }
+
+    const payload = {
+      cardholder_name: checkoutForm.cardholder_name.trim(),
+      card_number: checkoutForm.card_number.trim(),
+      expiry: checkoutForm.expiry.trim(),
+      cvv: checkoutForm.cvv.trim(),
+      delivery_address: checkoutForm.delivery_address.trim(),
+    }
+
+    if (
+      !payload.cardholder_name ||
+      !payload.card_number ||
+      !payload.expiry ||
+      !payload.cvv ||
+      !payload.delivery_address
+    ) {
+      setCheckoutMessage('Please fill in all checkout fields.')
+      return
+    }
+
+    try {
+      setCheckoutLoading(true)
+      setCheckoutMessage('')
+      const order = await request('/checkout', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      setCheckoutForm(emptyCheckoutForm)
+      setCartCouponForm(emptyCartCouponForm)
+      setCartCouponMessage('')
+      await loadStore()
+      await loadOrders()
+      if (isAdmin) {
+        await loadAdminOrders()
+      }
+      setNotice(`Order #${order.id} placed.`)
+      setCheckoutMessage(`Payment complete. Order #${order.id} was created.`)
+    } catch (err) {
+      setCheckoutMessage(err.message)
+    } finally {
+      setCheckoutLoading(false)
+    }
   }
 
   function startEditReview(review) {
@@ -996,6 +1123,20 @@ function App() {
       setNotice('Coupon deleted.')
       await loadAdminCoupons()
       await loadCoupons()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function changeOrderStatus(orderId, orderStatus) {
+    try {
+      setError('')
+      await request(`/admin/orders/${orderId}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ order_status: orderStatus }),
+      })
+      setNotice('Order status updated.')
+      await loadAdminOrders()
     } catch (err) {
       setError(err.message)
     }
@@ -1156,7 +1297,16 @@ function App() {
               </button>
             </div>
             {currentUser ? (
-              <AccountPanel currentUser={currentUser} onLogout={logoutUser} />
+              <>
+                <AccountPanel currentUser={currentUser} onLogout={logoutUser} />
+                {canUseCart && (
+                  <OrderHistoryPanel
+                    loading={orderLoading}
+                    onRefresh={() => loadOrders()}
+                    orders={orders}
+                  />
+                )}
+              </>
             ) : (
               <AuthPanel
                 authForm={authForm}
@@ -1193,7 +1343,6 @@ function App() {
             </div>
             <CartPanel
               cartItems={cartItems}
-              cartTotal={cartTotal}
               cartSummary={cartSummary}
               couponForm={cartCouponForm}
               couponMessage={cartCouponMessage}
@@ -1204,6 +1353,16 @@ function App() {
               onRemoveCartItem={removeCartItem}
               totalItems={totalItems}
             />
+            {cartItems.length > 0 && (
+              <CheckoutPanel
+                cartSummary={cartSummary}
+                checkoutForm={checkoutForm}
+                loading={checkoutLoading}
+                message={checkoutMessage}
+                onCheckoutFormChange={updateCheckoutForm}
+                onSubmit={submitCheckout}
+              />
+            )}
           </aside>
         </div>
       )}
@@ -1320,6 +1479,15 @@ function App() {
               >
                 Coupons
               </button>
+              <button
+                aria-selected={activeAdminTab === 'orders'}
+                className={`tab-button ${activeAdminTab === 'orders' ? 'active' : ''}`}
+                onClick={() => setActiveAdminTab('orders')}
+                role="tab"
+                type="button"
+              >
+                Orders
+              </button>
               {isSuperAdmin && (
                 <button
                   aria-selected={activeAdminTab === 'users'}
@@ -1364,6 +1532,15 @@ function App() {
                   onEditCoupon={startEditAdminCoupon}
                   onRefresh={() => loadAdminCoupons()}
                   onSubmit={submitAdminCoupon}
+                />
+              )}
+
+              {activeAdminTab === 'orders' && (
+                <AdminOrderPanel
+                  loading={adminOrderLoading}
+                  onRefresh={() => loadAdminOrders()}
+                  onStatusChange={changeOrderStatus}
+                  orders={adminOrders}
                 />
               )}
 
